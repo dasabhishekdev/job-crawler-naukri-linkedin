@@ -1,0 +1,9 @@
+{
+  "name": "@jobportal/db",
+  "version": "1.0.0",
+  "main": "src/index.js",
+  "type": "commonjs",
+  "dependencies": {
+    "mongoose": "^8.9.5"
+  }
+}

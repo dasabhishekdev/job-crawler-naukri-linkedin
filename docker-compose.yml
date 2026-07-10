@@ -1,0 +1,152 @@
+services:
+  mongodb:
+    image: mongo:7
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  auth-browser:
+    build:
+      context: .
+      dockerfile: apps/auth-browser/Dockerfile
+    ports:
+      - "6080:6080"
+      - "5001:5000"
+    environment:
+      DISPLAY: ":99"
+      AUTH_BROWSER_PORT: 5000
+      MONGODB_URI: mongodb://mongodb:27017/jobportal
+      PROFILE_PATH: /app/config/profile.json
+      RESUME_DIR: /app/resume
+      JOBHUNTER_DB_PATH: /app/jobhunter/jobs.db
+      LINKEDIN_STORAGE_STATE: /app/jobhunter/storageState.json
+      NAUKRI_STORAGE_STATE: /app/data/naukri-storage-state.json
+      NAUKRI_LOCATION: bengaluru
+      NAUKRI_EXPERIENCE: "2"
+      NAUKRI_KEYWORDS: supply chain|operations analyst|logistics analyst|warehouse operations|quick commerce|line haul|fleet management
+      TARGET_FRESH_JOBS: "20"
+      MAX_JOB_AGE_DAYS: 14
+      MAX_AUTO_APPLY_PER_RUN: "10"
+      TIER1_MIN_SCORE: "5"
+      TIER2_MIN_SCORE: "1"
+      SEARCH_DELAY_MS: 2000
+      VALIDATE_DELAY_MS: 1500
+      VNC_PUBLIC_URL: http://localhost:6080/vnc.html?autoconnect=true&resize=scale
+      PLAYWRIGHT_BROWSERS_PATH: /ms-playwright
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1"
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-5.4-mini}
+      LINKEDIN_LOCATION: Bangalore, Karnataka, India
+    volumes:
+      - ../jobhunter:/app/jobhunter
+      - ../create-resume:/app/resume:ro
+      - ./config:/app/config:ro
+      - worker_data:/app/data
+      - ./data/playwright-browsers:/ms-playwright
+    shm_size: "1gb"
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 8
+      start_period: 40s
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    ports:
+      - "4000:4000"
+    environment:
+      MONGODB_URI: mongodb://mongodb:27017/jobportal
+      API_PORT: 4000
+      RESUME_DIR: /app/resume
+      AUTH_BROWSER_URL: http://auth-browser:5000
+      TARGET_FRESH_JOBS: "20"
+      LINKEDIN_STORAGE_STATE: /app/jobhunter/storageState.json
+      NAUKRI_STORAGE_STATE: /app/data/naukri-storage-state.json
+      VNC_PUBLIC_URL: http://localhost:6080/vnc.html
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-5.4-mini}
+      LINKEDIN_LOCATION: Bangalore, Karnataka, India
+      NAUKRI_LOCATION: bengaluru
+    volumes:
+      - ../create-resume:/app/resume:ro
+      - ./config:/app/config:ro
+      - ../jobhunter:/app/jobhunter:ro
+      - worker_data:/app/data:ro
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      auth-browser:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  worker:
+    build:
+      context: .
+      dockerfile: apps/worker/Dockerfile
+    environment:
+      MONGODB_URI: mongodb://mongodb:27017/jobportal
+      TARGET_FRESH_JOBS: "20"
+      MAX_JOB_AGE_DAYS: 14
+      HEADLESS: "true"
+      RESUME_DIR: /app/resume
+      PROFILE_PATH: /app/config/profile.json
+      JOBHUNTER_DB_PATH: /app/jobhunter/jobs.db
+      LINKEDIN_STORAGE_STATE: /app/jobhunter/storageState.json
+      NAUKRI_STORAGE_STATE: /app/data/naukri-storage-state.json
+      NAUKRI_LOCATION: bengaluru
+      NAUKRI_EXPERIENCE: "2"
+      NAUKRI_KEYWORDS: supply chain|operations analyst|logistics analyst|warehouse operations|quick commerce|line haul|fleet management
+      MAX_AUTO_APPLY_PER_RUN: "10"
+      TIER1_MIN_SCORE: "5"
+      TIER2_MIN_SCORE: "1"
+      PLAYWRIGHT_BROWSERS_PATH: /ms-playwright
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1"
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-5.4-mini}
+      LINKEDIN_LOCATION: Bangalore, Karnataka, India
+    volumes:
+      - ../create-resume:/app/resume:ro
+      - ./config:/app/config:ro
+      - ../jobhunter/jobs.db:/app/jobhunter/jobs.db:ro
+      - ../jobhunter:/app/jobhunter:ro
+      - worker_data:/app/data
+      - ./data/playwright-browsers:/ms-playwright
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      api:
+        condition: service_healthy
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      args:
+        VITE_API_URL: http://localhost:4000
+        VITE_VNC_URL: http://localhost:6080/vnc.html?autoconnect=true&resize=scale
+    ports:
+      - "3001:3000"
+    depends_on:
+      api:
+        condition: service_healthy
+
+volumes:
+  mongodb_data:
+  worker_data:

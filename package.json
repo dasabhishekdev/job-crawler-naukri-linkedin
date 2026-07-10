@@ -1,0 +1,16 @@
+{
+  "name": "jobportal",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "dev:api": "npm run dev -w @jobportal/api",
+    "dev:web": "npm run dev -w @jobportal/web",
+    "dev:worker": "npm run dev -w @jobportal/worker",
+    "docker:up": "docker compose up --build",
+    "docker:down": "docker compose down"
+  }
+}

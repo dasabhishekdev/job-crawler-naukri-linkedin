@@ -1,0 +1,11 @@
+{
+  "name": "@jobportal/core",
+  "version": "1.0.0",
+  "main": "src/index.js",
+  "type": "commonjs",
+  "dependencies": {
+    "mammoth": "^1.9.0",
+    "openai": "^4.104.0",
+    "pdf-parse": "^1.1.1"
+  }
+}

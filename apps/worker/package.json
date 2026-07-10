@@ -1,0 +1,18 @@
+{
+  "name": "@jobportal/worker",
+  "version": "1.0.0",
+  "main": "src/index.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js",
+    "crawl": "node src/index.js --once",
+    "naukri:login": "node src/scripts/naukri-login.js"
+  },
+  "dependencies": {
+    "@jobportal/core": "*",
+    "@jobportal/db": "*",
+    "better-sqlite3": "^11.10.0",
+    "playwright": "^1.61.1"
+  }
+}
