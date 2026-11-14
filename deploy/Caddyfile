@@ -1,4 +1,12 @@
-# SITE_ADDRESS: ":80" for plain HTTP (local), or your domain (e.g. jobs.example.com) for automatic HTTPS.
+{
+	servers {
+		# Keep the client IP chain from the hosting edge proxy (private Docker networks).
+		trusted_proxies static private_ranges
+	}
+}
+
+# SITE_ADDRESS: ":80" for plain HTTP (local, or behind the hosting edge nginx in production),
+# or a domain (e.g. jobs.example.com) when Caddy itself should terminate HTTPS.
 {$SITE_ADDRESS::80} {
 	header {
 		X-Content-Type-Options nosniff

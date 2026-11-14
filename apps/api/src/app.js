@@ -20,7 +20,7 @@ const { agentRouter, usageRouter } = require("./routes/agent");
 function createApp(config) {
   const app = express();
   app.disable("x-powered-by");
-  app.set("trust proxy", 1);
+  app.set("trust proxy", config.trustProxyHops ?? 1);
 
   app.get(["/health", "/api/health"], (_req, res) => {
     const up = mongoose.connection.readyState === 1;

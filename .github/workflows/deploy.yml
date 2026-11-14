@@ -2,7 +2,7 @@ name: Deploy
 
 on:
   push:
-    branches: [main]
+    branches: [master]
   workflow_dispatch:
 
 concurrency:
@@ -51,51 +51,39 @@ jobs:
   deploy:
     needs: images
     runs-on: ubuntu-latest
-    timeout-minutes: 15
-    environment: production
-    env:
-      VPS_PATH: ${{ vars.VPS_PATH || '/opt/job-crawler' }}
+    timeout-minutes: 20
+    environment:
+      name: production
+      url: ${{ vars.PUBLIC_URL || 'https://job-crawler.educoreva.com' }}
     steps:
       - uses: actions/checkout@v4
-      - name: Copy compose files to the VPS
-        uses: appleboy/scp-action@v0.1.7
-        with:
-          host: ${{ secrets.VPS_HOST }}
-          username: ${{ secrets.VPS_USER }}
-          key: ${{ secrets.VPS_SSH_KEY }}
-          port: ${{ vars.VPS_PORT || 22 }}
-          source: "docker-compose.prod.yml,deploy/backup.sh"
-          target: ${{ env.VPS_PATH }}
-          strip_components: 0
-      - name: Pull and restart
-        uses: appleboy/ssh-action@v1.2.0
+      - name: Image name
+        id: name
+        run: echo "prefix=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/job-crawler" >> "$GITHUB_OUTPUT"
+      - name: Upload release and restart on the VPS
+        run: bash deploy/ship.sh
         env:
-          GHCR_USER: ${{ github.actor }}
-          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PROD_SSH_HOST: ${{ secrets.PROD_SSH_HOST }}
+          PROD_SSH_USER: ${{ secrets.PROD_SSH_USER }}
+          PROD_SSH_PORT: ${{ vars.PROD_SSH_PORT }}
+          PROD_SSH_PRIVATE_KEY: ${{ secrets.PROD_SSH_PRIVATE_KEY }}
+          PROD_SSH_PASSPHRASE: ${{ secrets.PROD_SSH_PASSPHRASE }}
+          PROD_SSH_KNOWN_HOSTS: ${{ vars.PROD_SSH_KNOWN_HOSTS }}
+          DEPLOY_DIR: ${{ vars.DEPLOY_DIR }}
+          PUBLIC_URL: ${{ vars.PUBLIC_URL || 'https://job-crawler.educoreva.com' }}
+          IMAGE_PREFIX: ${{ steps.name.outputs.prefix }}
           IMAGE_TAG: ${{ github.sha }}
-          DEPLOY_PATH: ${{ env.VPS_PATH }}
-        with:
-          host: ${{ secrets.VPS_HOST }}
-          username: ${{ secrets.VPS_USER }}
-          key: ${{ secrets.VPS_SSH_KEY }}
-          port: ${{ vars.VPS_PORT || 22 }}
-          envs: GHCR_USER,GHCR_TOKEN,IMAGE_TAG,DEPLOY_PATH
-          script_stop: true
-          script: |
-            set -euo pipefail
-            cd "$DEPLOY_PATH"
-            cp deploy/backup.sh ./backup.sh && chmod +x ./backup.sh
-            mkdir -p backups
-            test -f .env || { echo "Missing $DEPLOY_PATH/.env (copy .env.example and fill it in)"; exit 1; }
-            echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin
-            export IMAGE_TAG
-            docker compose -f docker-compose.prod.yml pull
-            docker compose -f docker-compose.prod.yml up -d --remove-orphans
-            for i in $(seq 1 30); do
-              status=$(docker inspect --format '{{.State.Health.Status}}' "$(docker compose -f docker-compose.prod.yml ps -q api)" || true)
-              [ "$status" = "healthy" ] && echo "API healthy" && break
-              sleep 5
-            done
-            [ "$status" = "healthy" ] || { docker compose -f docker-compose.prod.yml logs --tail 80 api; exit 1; }
-            docker logout ghcr.io
-            docker image prune -f
+          REGISTRY_USER: ${{ github.actor }}
+          REGISTRY_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ADMIN_EMAILS: ${{ vars.ADMIN_EMAILS }}
+          GOOGLE_CLIENT_ID: ${{ vars.GOOGLE_CLIENT_ID }}
+          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+      - name: Public health check
+        env:
+          PUBLIC_URL: ${{ vars.PUBLIC_URL || 'https://job-crawler.educoreva.com' }}
+        run: |
+          for i in $(seq 1 12); do
+            if curl -fsS --max-time 10 "$PUBLIC_URL/api/health"; then echo; exit 0; fi
+            sleep 10
+          done
+          echo "::warning::$PUBLIC_URL/api/health is not reachable yet. The containers are healthy on the VPS; check DNS / Cloudflare and the hosting route."

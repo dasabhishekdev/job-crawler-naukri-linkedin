@@ -80,40 +80,52 @@ Portals can restrict accounts that look automated. Keep the limits conservative 
 
 ## Deploy to a VPS (GitHub Actions)
 
-Pushing to `main` runs `.github/workflows/deploy.yml`: tests → build `api`, `worker`, `browser`, `web` images → push to GHCR → SSH into the VPS → `docker compose pull && up -d` → wait for the API health check.
+Production runs at **https://job-crawler.educoreva.com** behind the shared edge nginx from the `hosting` repo, which owns ports 80/443 and routes `job-crawler.educoreva.com` → `job-crawler-web:80` (`hosting/nginx/conf.d/job-crawler.conf`). Only the `web` container joins the shared Docker network `web`; the API, worker, login browser and MongoDB stay private.
 
-### One-time server setup
-
-```bash
-# On the VPS (Ubuntu/Debian with Docker Engine + compose plugin installed)
-sudo mkdir -p /opt/job-crawler && sudo chown $USER /opt/job-crawler
-cd /opt/job-crawler
-# create .env from .env.example and fill the production section:
-#   PUBLIC_URL=https://jobs.example.com      SITE_ADDRESS=jobs.example.com
-#   IMAGE_PREFIX=ghcr.io/<github-user>/job-crawler
-#   MONGO_ROOT_USER=jobcrawler  MONGO_ROOT_PASSWORD=$(openssl rand -hex 24)
-#   SESSION_SECRET, APP_ENCRYPTION_KEY, ADMIN_EMAILS, GOOGLE_* as above
+```
+Internet → Cloudflare → VPS edge-nginx (hosting) → job-crawler-web (Caddy: SPA, /api → api, /api/portals/ws → browser)
 ```
 
-Point your domain's DNS A/AAAA record at the server and open ports 80 and 443. Caddy obtains HTTPS certificates automatically.
+Pushing to `master` runs `.github/workflows/deploy.yml`:
+1. Tests run.
+2. The `api`, `worker`, `browser` and `web` images are built and pushed to GHCR.
+3. `deploy/ship.sh` connects to the VPS over SSH, with the host key pinned, and uploads the compose file and scripts.
+4. `deploy/remote-deploy.sh` runs on the VPS: it pulls the images, restarts the stack, and waits for `api`, `browser` and `web` to report healthy. If they don't, it rolls back to the previous images.
+5. The workflow checks `https://job-crawler.educoreva.com/api/health`.
+
+The first deploy creates `~/job-crawler/.env` on the VPS. It generates `SESSION_SECRET`, `APP_ENCRYPTION_KEY` and the MongoDB credentials on the server, so they never pass through GitHub. **Back that file up:** if `APP_ENCRYPTION_KEY` is lost, stored AI keys can't be decrypted, and the MongoDB password can't change once the database exists. Later deploys keep these values. They only update the values GitHub manages: `PUBLIC_URL`, `IMAGE_PREFIX`, `IMAGE_TAG`, and `ADMIN_EMAILS`/`GOOGLE_*` when set.
+
+### One-time setup
+
+1. **Hosting router:** deploy the `hosting` repo (it includes the `job-crawler.educoreva.com` route). Its `edge-nginx` creates the Docker network `web`; this deploy refuses to run without it.
+2. **VPS user:** the SSH user (e.g. `deploy`, the same one hosting uses) must be in the `docker` group. The VPS needs Docker Engine with the compose plugin, `openssl` and `flock` (standard on Ubuntu/Debian).
+3. **DNS:** in Cloudflare, add a proxied `A` record for `job-crawler` in `educoreva.com` pointing to the VPS IP. Like `icds.educoreva.com`, it runs in Flexible mode: Cloudflare serves HTTPS to visitors, and the origin speaks HTTP.
+4. **Google sign-in (optional):** add these redirect URIs to the OAuth client: `https://job-crawler.educoreva.com/api/auth/google/callback` and `https://job-crawler.educoreva.com/api/google/drive/callback`.
 
 ### GitHub repository settings
 
+Settings → Secrets and variables → Actions. The SSH values can be the same ones the `hosting` repo uses.
+
 | Kind | Name | Value |
 |------|------|-------|
-| Secret | `VPS_HOST` | Server IP or hostname |
-| Secret | `VPS_USER` | SSH user that can run `docker` |
-| Secret | `VPS_SSH_KEY` | Private key for that user (add the public key to `~/.ssh/authorized_keys`) |
-| Variable (optional) | `VPS_PORT` | SSH port, default `22` |
-| Variable (optional) | `VPS_PATH` | Deploy directory, default `/opt/job-crawler` |
+| Secret | `PROD_SSH_HOST` | VPS IP, e.g. `89.117.56.119` |
+| Secret | `PROD_SSH_USER` | SSH user, e.g. `deploy` |
+| Secret | `PROD_SSH_PRIVATE_KEY` | Private key for that user (its public key in `~/.ssh/authorized_keys` on the VPS) |
+| Secret | `PROD_SSH_PASSPHRASE` | Key passphrase, if the key is encrypted |
+| Variable | `PROD_SSH_KNOWN_HOSTS` | The VPS host key line(s) for `known_hosts`, verified out of band (e.g. `ssh-keyscan -H <ip>` checked against the provider console fingerprint) |
+| Variable (optional) | `PROD_SSH_PORT` | SSH port, default `22` |
+| Variable (optional) | `DEPLOY_DIR` | App directory on the VPS, default `$HOME/job-crawler` |
+| Variable (optional) | `PUBLIC_URL` | Default `https://job-crawler.educoreva.com` |
+| Variable (optional) | `ADMIN_EMAILS` | Comma-separated admin emails |
+| Variable / Secret (optional) | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | Google sign-in + Drive |
 | Variable (optional) | `VPS_PLATFORM` | `linux/amd64` (default) or `linux/arm64` |
 
-Create a `production` environment under **Settings → Environments** (optionally with required reviewers). The workflow uses the built-in `GITHUB_TOKEN` to push and pull images.
+The deploy job uses the `production` environment (created automatically; add required reviewers there if you want manual approval). The built-in `GITHUB_TOKEN` pushes the images and lets the VPS pull them during the deploy. Deploys can also be started by hand: Actions → Deploy → Run workflow.
 
 ### Operations
 
 ```bash
-cd /opt/job-crawler
+cd ~/job-crawler
 docker compose -f docker-compose.prod.yml ps
 docker compose -f docker-compose.prod.yml logs -f worker
 ls backups/                                   # nightly mongodump archives, kept 14 days

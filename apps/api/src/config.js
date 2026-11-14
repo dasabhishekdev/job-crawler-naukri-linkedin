@@ -19,6 +19,8 @@ function loadConfig() {
     allowedOrigins: new Set([new URL(publicUrl).origin, ...extraOrigins]),
     sessionSecret: required("SESSION_SECRET", { minLength: 32 }),
     cookieSecure: publicUrl.startsWith("https://"),
+    // Proxies in front of the API: Caddy alone = 1; edge nginx + Caddy = 2.
+    trustProxyHops: Number(process.env.TRUST_PROXY_HOPS) || 1,
     adminEmails: new Set(
       (process.env.ADMIN_EMAILS || "").split(",").map((s) => s.trim().toLowerCase()).filter(Boolean)
     ),

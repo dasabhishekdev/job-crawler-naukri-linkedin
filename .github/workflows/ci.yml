@@ -3,7 +3,7 @@ name: CI
 on:
   pull_request:
   push:
-    branches-ignore: [main]
+    branches-ignore: [master]
   workflow_call:
 
 permissions:
@@ -38,5 +38,7 @@ jobs:
           cp .env.example .env
           sed -i 's/^SESSION_SECRET=.*/SESSION_SECRET=ci-only-secret-ci-only-secret-0000/; s/^APP_ENCRYPTION_KEY=.*/APP_ENCRYPTION_KEY=ci/' .env
           docker compose config --quiet
-          SITE_ADDRESS=example.com IMAGE_PREFIX=ghcr.io/x/job-crawler MONGO_ROOT_USER=u MONGO_ROOT_PASSWORD=p PUBLIC_URL=https://example.com \
+          IMAGE_PREFIX=ghcr.io/x/job-crawler MONGO_ROOT_USER=u MONGO_ROOT_PASSWORD=p PUBLIC_URL=https://example.com \
             docker compose -f docker-compose.prod.yml config --quiet
+      - name: Deploy scripts
+        run: bash -n deploy/ship.sh deploy/remote-deploy.sh deploy/backup.sh

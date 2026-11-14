@@ -1,5 +1,8 @@
-# Production stack for the VPS. Images are built and pushed by GitHub Actions (.github/workflows/deploy.yml).
-# Usage on the server (in the directory holding this file and .env):
+# Production stack for the VPS. Images are built and pushed by GitHub Actions (.github/workflows/deploy.yml),
+# which then runs deploy/remote-deploy.sh on the server.
+# Public traffic arrives through the shared hosting edge nginx (repo `hosting`): only `web` joins the
+# external Docker network `web`, as alias `job-crawler-web`; API, worker, browser and MongoDB stay private.
+# Manual usage on the server (in the directory holding this file and .env):
 #   docker compose -f docker-compose.prod.yml pull && docker compose -f docker-compose.prod.yml up -d
 name: job-crawler
 
@@ -37,7 +40,9 @@ services:
     image: ${IMAGE_PREFIX:?}-api:${IMAGE_TAG:-latest}
     restart: unless-stopped
     logging: *logging
-    environment: *app-env
+    environment:
+      <<: *app-env
+      TRUST_PROXY_HOPS: ${TRUST_PROXY_HOPS:-2}
     depends_on:
       mongodb: { condition: service_healthy }
 
@@ -72,14 +77,22 @@ services:
     restart: unless-stopped
     logging: *logging
     environment:
-      SITE_ADDRESS: ${SITE_ADDRESS:?Set SITE_ADDRESS to your domain, e.g. jobs.example.com}
-    ports:
-      - "80:80"
-      - "443:443"
-      - "443:443/udp"
+      SITE_ADDRESS: ":80"
+    expose:
+      - "80"
+    networks:
+      default:
+      web:
+        aliases: [job-crawler-web]
     volumes:
       - caddy_data:/data
       - caddy_config:/config
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1/api/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 4
+      start_period: 10s
     depends_on:
       api: { condition: service_healthy }
       browser: { condition: service_healthy }
@@ -97,6 +110,11 @@ services:
       - ./backups:/backups
     depends_on:
       mongodb: { condition: service_healthy }
+
+networks:
+  web:
+    external: true
+    name: web
 
 volumes:
   mongo_data:
