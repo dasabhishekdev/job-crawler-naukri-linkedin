@@ -1,5 +1,5 @@
 const path = require("path");
-const pdfParse = require("pdf-parse");
+const { PDFParse } = require("pdf-parse");
 const mammoth = require("mammoth");
 
 const MAX_CHARS = 20000;
@@ -23,12 +23,26 @@ function resumeMimeType(filename) {
   return ALLOWED[path.extname(filename || "").toLowerCase()] || null;
 }
 
+const PAGE_MARKER = /^-- \d+ of \d+ --$/gm;
+
+async function pdfText(buffer) {
+  const parser = new PDFParse({ data: new Uint8Array(buffer) });
+  try {
+    return (await parser.getText()).text.replace(PAGE_MARKER, "");
+  } catch (err) {
+    if (err?.name === "PasswordException") throw new Error("This PDF is password-protected. Remove the password and upload it again.");
+    throw new Error("This PDF could not be read. Export it again from Word or Google Docs, or upload a DOCX.");
+  } finally {
+    await parser.destroy().catch(() => {});
+  }
+}
+
 async function parseResume(buffer, filename) {
   const ext = path.extname(filename || "").toLowerCase();
   let text;
   switch (ext) {
     case ".pdf":
-      text = (await pdfParse(buffer)).text;
+      text = await pdfText(buffer);
       break;
     case ".docx":
       text = (await mammoth.extractRawText({ buffer })).value;
