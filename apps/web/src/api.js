@@ -39,6 +39,8 @@ export const api = {
 
   getProfile: () => request("/profile"),
   saveProfile: (body) => request("/profile", { method: "PUT", body }),
+  applySuggestion: (fields) => request("/profile/suggestion/apply", { method: "POST", body: { fields } }),
+  dismissSuggestion: () => request("/profile/suggestion", { method: "DELETE" }),
   saveCareerPages: (pages) => request("/profile/career-pages", { method: "PUT", body: { pages } }),
 
   getResume: () => request("/resume"),

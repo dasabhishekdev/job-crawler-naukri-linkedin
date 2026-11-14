@@ -1,4 +1,5 @@
 const { Profile, Resume } = require("@jobportal/db");
+const { suggestionChanges } = require("@jobportal/core");
 const { parsePrompt, normalizeParsed } = require("../resume/parse");
 const { withAi, loadResumeAndProfile } = require("./shared");
 
@@ -36,10 +37,17 @@ async function parseResumeTask({ user, log, stage }) {
     if (!profile.target_locations.length && profile.current_location) {
       profile.target_locations = [profile.current_location.split(",")[0].trim()];
     }
+    profile.suggested = parsed.profile;
+    profile.suggested_at = new Date();
     await profile.save();
     await Resume.updateOne({ _id: resume._id }, { $set: { parse_status: "done" } });
+
+    const pending = suggestionChanges(profile.toObject(), parsed.profile);
     await log.info(`Profile ready: ${profile.target_roles.length} target roles, ${profile.skills.length} skills`);
-    return { target_roles: profile.target_roles.length, skills: profile.skills.length };
+    if (pending.length) {
+      await log.info(`The analysis suggests changes to ${pending.map((c) => c.label.toLowerCase()).join(", ")}. Review and apply them on the Resume page.`);
+    }
+    return { target_roles: profile.target_roles.length, skills: profile.skills.length, suggested_changes: pending.length };
   } catch (err) {
     await Resume.updateOne({ _id: resume._id }, { $set: { parse_status: "failed", parse_error: err.message.slice(0, 300) } });
     throw err;

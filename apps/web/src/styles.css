@@ -455,3 +455,27 @@ input[type="checkbox"] { width: auto; min-height: 0; }
   .live-msg { flex-basis: 100%; }
   .live-log { height: 55vh; }
 }
+
+/* Analysed profile review */
+.suggestion { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.suggestion-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.suggestion-list li {
+  display: flex; flex-direction: column; gap: 8px; padding: 12px; border-radius: 12px;
+  border: 1px solid var(--border); background: var(--surface-2); opacity: 0.7;
+}
+.suggestion-list li.is-selected { opacity: 1; background: var(--surface); }
+.suggestion-pick { display: flex; align-items: center; gap: 10px; cursor: pointer; min-height: 32px; }
+.suggestion-pick input { width: 20px; height: 20px; accent-color: var(--accent); }
+.suggestion-values { display: flex; flex-direction: column; gap: 4px; font-size: 0.9rem; }
+.suggestion-tag {
+  display: inline-block; min-width: 76px; font-size: 0.7rem; font-weight: 700; text-transform: uppercase;
+  letter-spacing: 0.04em; color: var(--muted);
+}
+.suggestion-tag-new { color: var(--accent); }
+.chip-removed { background: var(--red-soft); color: var(--red); }
+.segmented { display: inline-flex; align-self: flex-start; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+.segmented button {
+  border: 0; background: transparent; color: var(--muted); font: inherit; font-size: 0.82rem; font-weight: 600;
+  padding: 6px 12px; min-height: 34px; cursor: pointer;
+}
+.segmented button.is-active { background: var(--accent); color: #fff; }

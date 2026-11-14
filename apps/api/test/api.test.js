@@ -190,6 +190,40 @@ test("live log stream sends the user's own backlog and new lines as Server-Sent 
   assert.equal((await request(app).get("/api/runs/live")).status, 401);
 });
 
+test("analysed profile suggestions can be reviewed, partly applied and dismissed", async () => {
+  const { Profile } = require("@jobportal/db");
+  const { agent } = await signup("suggest@example.com");
+  await agent.put("/api/profile").send({ headline: "Analyst", skills: ["Excel", "SQL"], target_roles: ["Buyer"] });
+  const user = await User.findOne({ email: "suggest@example.com" });
+  await Profile.updateOne(
+    { user_id: user._id },
+    {
+      $set: {
+        suggested: { headline: "Procurement Operations", skills: ["excel", "GRN Follow-up"], target_roles: ["Procurement Analyst"], summary: "" },
+        suggested_at: new Date(),
+      },
+    }
+  );
+
+  const view = await agent.get("/api/profile");
+  assert.deepEqual(view.body.suggestion.changes.map((c) => c.field).sort(), ["headline", "skills", "target_roles"]);
+  assert.equal(view.body.profile.suggested, undefined, "raw suggestion is not exposed");
+
+  assert.equal((await agent.post("/api/profile/suggestion/apply").send({ fields: {} })).status, 400);
+  assert.equal((await agent.post("/api/profile/suggestion/apply").send({ fields: { password_hash: "replace" } })).status, 400);
+
+  const applied = await agent.post("/api/profile/suggestion/apply").send({ fields: { skills: "add", headline: "replace" } });
+  assert.equal(applied.status, 200);
+  assert.deepEqual(applied.body.profile.skills, ["Excel", "SQL", "GRN Follow-up"]);
+  assert.equal(applied.body.profile.headline, "Procurement Operations");
+  assert.deepEqual(applied.body.suggestion.changes.map((c) => c.field), ["target_roles"], "only unapplied changes remain");
+
+  const dismissed = await agent.delete("/api/profile/suggestion");
+  assert.equal(dismissed.body.suggestion, null);
+  assert.deepEqual(dismissed.body.profile.target_roles, ["Buyer"]);
+  assert.equal((await agent.post("/api/profile/suggestion/apply").send({ fields: { skills: "add" } })).status, 404);
+});
+
 test("AI key and crawl endpoints validate input and prerequisites", async () => {
   const { agent } = await signup("ai@example.com");
   assert.equal((await agent.put("/api/settings/ai-key").send({ provider: "cursor", api_key: "short" })).status, 400);

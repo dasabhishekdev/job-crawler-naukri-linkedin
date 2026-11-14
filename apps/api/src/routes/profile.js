@@ -1,6 +1,8 @@
 const express = require("express");
 const { z } = require("zod");
 const { Profile } = require("@jobportal/db");
+const { suggestionChanges, applySuggestion, SUGGESTION_FIELDS } = require("@jobportal/core");
+const { notFound } = require("../lib/http-error");
 
 const text = (max) => z.string().trim().max(max);
 const list = (maxItems, maxLen) =>
@@ -25,6 +27,10 @@ const profileSchema = z
   })
   .partial();
 
+const applySchema = z.object({
+  fields: z.partialRecord(z.enum(SUGGESTION_FIELDS), z.enum(["replace", "add"])).refine((f) => Object.keys(f).length > 0, "Choose at least one field to apply."),
+});
+
 const careerPagesSchema = z.object({
   pages: z
     .array(
@@ -44,8 +50,15 @@ function profileRouter() {
     return (await Profile.findOne({ user_id: userId })) || Profile.create({ user_id: userId });
   }
 
+  function payload(profile) {
+    const plain = profile.toObject();
+    const changes = suggestionChanges(plain, plain.suggested);
+    delete plain.suggested;
+    return { profile: plain, suggestion: changes.length ? { at: profile.suggested_at, changes } : null };
+  }
+
   router.get("/", async (req, res) => {
-    res.json({ profile: await getProfile(req.user._id) });
+    res.json(payload(await getProfile(req.user._id)));
   });
 
   router.put("/", async (req, res) => {
@@ -53,7 +66,25 @@ function profileRouter() {
     const profile = await getProfile(req.user._id);
     Object.assign(profile, patch, { edited_by_user: true });
     await profile.save();
-    res.json({ profile });
+    res.json(payload(profile));
+  });
+
+  router.post("/suggestion/apply", async (req, res) => {
+    const { fields } = applySchema.parse(req.body);
+    const profile = await getProfile(req.user._id);
+    if (!profile.suggested) throw notFound("There is no analysed profile to apply. Re-analyse your resume first.");
+    const patch = profileSchema.parse(applySuggestion(profile.toObject(), profile.suggested, fields));
+    Object.assign(profile, patch, { edited_by_user: true });
+    await profile.save();
+    res.json({ ...payload(profile), applied: Object.keys(patch) });
+  });
+
+  router.delete("/suggestion", async (req, res) => {
+    const profile = await getProfile(req.user._id);
+    profile.suggested = undefined;
+    profile.suggested_at = undefined;
+    await profile.save();
+    res.json(payload(profile));
   });
 
   router.put("/career-pages", async (req, res) => {

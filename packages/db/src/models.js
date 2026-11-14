@@ -108,6 +108,8 @@ const profileSchema = new Schema(
     exclude_companies: { type: [String], default: [] },
     career_pages: { type: [careerPageSchema], default: [] },
     structured_resume: { type: Schema.Types.Mixed, default: undefined },
+    suggested: { type: Schema.Types.Mixed, default: undefined },
+    suggested_at: Date,
     edited_by_user: { type: Boolean, default: false },
   },
   { timestamps: true }
