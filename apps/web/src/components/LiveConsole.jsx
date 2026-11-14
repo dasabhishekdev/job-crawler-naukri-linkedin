@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useLiveFeed } from "../hooks";
 
 export const KIND_LABELS = {
-  crawl: "Web search",
+  crawl: "Job search",
   portal_crawl: "LinkedIn / Naukri",
   parse_resume: "Resume",
   generate_resume: "Tailored resume",

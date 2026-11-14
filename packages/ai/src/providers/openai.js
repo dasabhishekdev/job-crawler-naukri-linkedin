@@ -1,10 +1,12 @@
 const OpenAI = require("openai");
+const { modelInfo } = require("../pricing");
 
 const DEFAULT_MODEL = "gpt-4o-mini";
 const PREFERRED = ["gpt-4o-mini", "gpt-4o", "gpt-4.1-mini", "gpt-4.1", "gpt-5-mini", "gpt-5", "gpt-5.4-mini", "gpt-5.4"];
 
+// Retries are handled by the shared client wrapper.
 function client(apiKey) {
-  return new OpenAI({ apiKey, timeout: 120000, maxRetries: 2 });
+  return new OpenAI({ apiKey, timeout: 120000, maxRetries: 0 });
 }
 
 function isReasoningFamily(model) {
@@ -28,7 +30,36 @@ async function listModels(apiKey) {
   };
   return [...new Set(ids)]
     .sort((a, b) => rank(a) - rank(b) || a.localeCompare(b))
-    .map((id) => ({ id, label: id, description: id === DEFAULT_MODEL ? "Recommended: fast and inexpensive" : "" }));
+    .map((id) => ({
+      id,
+      label: id,
+      description: id === DEFAULT_MODEL ? "Recommended: fast and inexpensive" : "",
+      ...modelInfo("openai", id),
+    }));
+}
+
+function chatUsage(u) {
+  if (!u) return null;
+  const cached = u.prompt_tokens_details?.cached_tokens || 0;
+  return {
+    input: Math.max(0, (u.prompt_tokens || 0) - cached),
+    output: u.completion_tokens || 0,
+    cache_read: cached,
+    cache_write: 0,
+    total: u.total_tokens || (u.prompt_tokens || 0) + (u.completion_tokens || 0),
+  };
+}
+
+function responsesUsage(u) {
+  if (!u) return null;
+  const cached = u.input_tokens_details?.cached_tokens || 0;
+  return {
+    input: Math.max(0, (u.input_tokens || 0) - cached),
+    output: u.output_tokens || 0,
+    cache_read: cached,
+    cache_write: 0,
+    total: u.total_tokens || (u.input_tokens || 0) + (u.output_tokens || 0),
+  };
 }
 
 function reportSearches(response, onEvent) {
@@ -52,7 +83,7 @@ function createOpenAiProvider({ apiKey, model, onEvent }) {
       if (isReasoningFamily(chosen)) params.max_completion_tokens = maxTokens * 3;
       else Object.assign(params, { max_tokens: maxTokens, temperature: 0.3 });
       const res = await api.chat.completions.create(params);
-      return res.choices[0]?.message?.content || "";
+      return { text: res.choices[0]?.message?.content || "", usage: chatUsage(res.usage) };
     },
     async search(prompt) {
       const run = (type) => api.responses.create({ model: chosen, tools: [{ type }], input: prompt });
@@ -64,7 +95,7 @@ function createOpenAiProvider({ apiKey, model, onEvent }) {
         res = await run("web_search_preview");
       }
       reportSearches(res, onEvent);
-      return res.output_text || "";
+      return { text: res.output_text || "", usage: responsesUsage(res.usage) };
     },
   };
 }

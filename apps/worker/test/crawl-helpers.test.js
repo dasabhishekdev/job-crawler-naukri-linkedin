@@ -9,7 +9,14 @@ const {
   postedAgeDays,
 } = require("../src/crawl/normalize");
 const { atsCoverage } = require("../src/crawl/ats");
-const { detectBoard, mapGreenhouseJob, mapLeverJob } = require("../src/crawl/career-boards");
+const {
+  detectBoard,
+  detectBoardFromHtml,
+  mapGreenhouseJob,
+  mapLeverJob,
+  mapWorkdayJob,
+  mapSmartRecruitersJob,
+} = require("../src/crawl/career-boards");
 const { buildSearchBatches } = require("../src/crawl/discovery");
 const { toRecord } = require("../src/tasks/crawl");
 
@@ -100,6 +107,41 @@ test("detectBoard recognises Greenhouse, Lever, Ashby and generic pages", () => 
   assert.equal(detectBoard("https://jobs.lever.co/meesho").api, "https://api.lever.co/v0/postings/meesho?mode=json");
   assert.equal(detectBoard("https://jobs.ashbyhq.com/acme").type, "ashby");
   assert.equal(detectBoard("https://careers.swiggy.com/#/careers").type, "generic");
+});
+
+test("detectBoard recognises Workday and SmartRecruiters", () => {
+  const wd = detectBoard("https://illumina.wd1.myworkdayjobs.com/en-US/illumina-careers/job/Bengaluru/Buyer_123");
+  assert.equal(wd.type, "workday");
+  assert.equal(wd.api, "https://illumina.wd1.myworkdayjobs.com/wday/cxs/illumina/illumina-careers/jobs");
+  assert.equal(wd.base, "https://illumina.wd1.myworkdayjobs.com/illumina-careers");
+  const site = detectBoard("https://wd3.myworkdaysite.com/recruiting/acme/External");
+  assert.equal(site.api, "https://wd3.myworkdaysite.com/wday/cxs/acme/External/jobs");
+  const sr = detectBoard("https://careers.smartrecruiters.com/BoschGroup");
+  assert.equal(sr.type, "smartrecruiters");
+  assert.equal(sr.api, "https://api.smartrecruiters.com/v1/companies/BoschGroup/postings?limit=100");
+});
+
+test("detectBoardFromHtml finds an embedded job system on a company careers page", () => {
+  const html = '<a href="https://boards.greenhouse.io/acme/jobs/1">Jobs</a><iframe src="https://jobs.lever.co/other"></iframe>';
+  assert.equal(detectBoardFromHtml(html).token, "acme");
+  assert.equal(detectBoardFromHtml('<script src="https://acme.wd5.myworkdayjobs.com/en-US/External"></script>').type, "workday");
+  assert.equal(detectBoardFromHtml("<p>No ATS here</p>"), null);
+});
+
+test("Workday and SmartRecruiters postings map to the common job shape", () => {
+  const board = detectBoard("https://acme.wd5.myworkdayjobs.com/External");
+  const wd = mapWorkdayJob(board, { title: "Buyer", externalPath: "/job/Bengaluru/Buyer_R1", locationsText: "Bengaluru, India", postedOn: "Posted 2 Days Ago" });
+  assert.deepEqual(wd, { title: "Buyer", location: "Bengaluru, India", apply_url: "https://acme.wd5.myworkdayjobs.com/External/job/Bengaluru/Buyer_R1", posted: "Posted 2 Days Ago", description: "", detail: "/job/Bengaluru/Buyer_R1" });
+  const sr = mapSmartRecruitersJob(detectBoard("https://jobs.smartrecruiters.com/BoschGroup/1"), {
+    id: "744",
+    name: "Purchasing Buyer",
+    location: { fullLocation: "Bengaluru, Karnataka, India", city: "Bengaluru" },
+    releasedDate: "2026-11-12T09:48:30.250Z",
+    ref: "https://api.smartrecruiters.com/v1/companies/BoschGroup/postings/744",
+  });
+  assert.equal(sr.apply_url, "https://jobs.smartrecruiters.com/BoschGroup/744");
+  assert.equal(sr.location, "Bengaluru, Karnataka, India");
+  assert.equal(sr.detail, "https://api.smartrecruiters.com/v1/companies/BoschGroup/postings/744");
 });
 
 test("board job mappers produce the common job shape", () => {

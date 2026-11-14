@@ -17,6 +17,9 @@ const crawlerSchema = z
     searches_per_run: z.coerce.number().int().min(1).max(6),
     jobs_per_search: z.coerce.number().int().min(3).max(15),
     min_match_to_sheet: z.coerce.number().int().min(0).max(100),
+    daily_token_budget: z.coerce.number().int().min(0).max(50_000_000),
+    discover_companies: z.boolean(),
+    career_pages_per_run: z.coerce.number().int().min(1).max(25),
   })
   .partial();
 

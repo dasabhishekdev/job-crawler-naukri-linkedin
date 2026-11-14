@@ -20,12 +20,12 @@ function isEmpty(value) {
   return value === undefined || value === null || value === "" || value === 0 || (Array.isArray(value) && !value.length);
 }
 
-async function parseResumeTask({ user, log, stage }) {
+async function parseResumeTask({ user, run, log, stage }) {
   const { resume } = await loadResumeAndProfile(user);
   await Resume.updateOne({ _id: resume._id }, { $set: { parse_status: "parsing", parse_error: "" } });
   try {
     await stage("parse", "Reading your resume with AI");
-    const parsed = normalizeParsed(await withAi({ user, log }, (ai) => ai.json(parsePrompt(resume.text), { maxTokens: 3500, label: "Reading your resume" })));
+    const parsed = normalizeParsed(await withAi({ user, log, run }, (ai) => ai.json(parsePrompt(resume.text), { maxTokens: 3500, label: "Reading your resume" })));
 
     const profile = (await Profile.findOne({ user_id: user._id })) || new Profile({ user_id: user._id });
     profile.structured_resume = parsed.resume;

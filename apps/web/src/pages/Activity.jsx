@@ -3,6 +3,13 @@ import { api } from "../api";
 import { usePoll } from "../hooks";
 import { Alert, Button, Empty, Sheet, formatDateTime, timeAgo } from "../components/ui";
 import { LiveConsole, KIND_LABELS } from "../components/LiveConsole";
+import { AgentMemory } from "../components/AgentMemory";
+
+const TABS = [
+  { id: "live", label: "Live" },
+  { id: "history", label: "History" },
+  { id: "memory", label: "Memory" },
+];
 
 const STATUS_TONES = { completed: "badge-green", failed: "badge-red", cancelled: "badge-orange", running: "badge-blue", queued: "badge" };
 
@@ -42,6 +49,7 @@ export function ActivityPage() {
   const [runs, setRuns] = useState(null);
   const [error, setError] = useState("");
   const [open, setOpen] = useState(null);
+  const [tab, setTab] = useState("live");
   const statuses = useRef({});
   const known = useRef(new Set());
 
@@ -55,7 +63,7 @@ export function ActivityPage() {
     }
   }, []);
 
-  usePoll(load, 30000);
+  usePoll(load, tab === "history" ? 8000 : 30000);
 
   const onRunUpdate = useCallback(
     (liveRuns) => {
@@ -83,10 +91,18 @@ export function ActivityPage() {
       </header>
       <Alert tone="error">{error}</Alert>
 
-      <LiveConsole onRunUpdate={onRunUpdate} />
+      <div className="tabs" role="tablist">
+        {TABS.map((t) => (
+          <button key={t.id} type="button" role="tab" aria-selected={tab === t.id} className={tab === t.id ? "is-active" : ""} onClick={() => setTab(t.id)}>
+            {t.label}
+          </button>
+        ))}
+      </div>
 
-      <h2 className="section-title">History</h2>
-      {runs === null ? (
+      {tab === "live" ? <LiveConsole onRunUpdate={onRunUpdate} /> : null}
+      {tab === "memory" ? <AgentMemory /> : null}
+
+      {tab !== "history" ? null : runs === null ? (
         <p className="muted">Loading…</p>
       ) : runs.length ? (
         <ul className="list card">

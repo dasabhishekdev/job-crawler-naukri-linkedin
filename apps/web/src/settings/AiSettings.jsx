@@ -103,14 +103,22 @@ function ProviderPanel({ meta, keyInfo, isActive, model, onSaved }) {
 
       {keyInfo.configured && !keyInfo.error ? (
         <div className="provider-models">
-          <Field label="Model" hint={keyInfo.verified_at ? `Key verified ${formatDateTime(keyInfo.verified_at)}` : ""}>
+          <Field
+            label="Model"
+            hint={`${meta.id === "cursor" ? "Composer 2.5 and Grok are covered by paid Cursor plans' weekly pool; Composer 2.5 uses it slowest. " : ""}${keyInfo.verified_at ? `Key verified ${formatDateTime(keyInfo.verified_at)}.` : ""}`}
+          >
             {(id) => (
               <select id={id} value={selected} onChange={(e) => setSelected(e.target.value)}>
                 {[...new Set([selected, ...models.map((m) => m.id)].filter(Boolean))].map((idValue) => {
                   const m = models.find((x) => x.id === idValue);
+                  const note = m?.included_in_plan
+                    ? " · included in Cursor plan"
+                    : m?.known
+                      ? ` · $${m.input} in / $${m.output} out per 1M tokens`
+                      : "";
                   return (
                     <option key={idValue} value={idValue}>
-                      {m?.label || idValue}
+                      {(m?.label || idValue) + note}
                     </option>
                   );
                 })}

@@ -479,3 +479,21 @@ input[type="checkbox"] { width: auto; min-height: 0; }
   padding: 6px 12px; min-height: 34px; cursor: pointer;
 }
 .segmented button.is-active { background: var(--accent); color: #fff; }
+
+/* AI usage */
+.usage-head { display: flex; justify-content: space-between; align-items: flex-end; gap: 12px; flex-wrap: wrap; }
+.usage-big { font-size: 1.8rem; font-weight: 800; line-height: 1.1; }
+.usage-cost { text-align: right; }
+.meter { height: 10px; border-radius: 999px; background: var(--surface-2); overflow: hidden; }
+.meter span { display: block; height: 100%; background: var(--accent); border-radius: inherit; transition: width 0.3s; }
+.meter.is-high span { background: var(--orange); }
+.usage-bars { display: grid; grid-template-columns: repeat(7, 1fr); gap: 8px; height: 110px; align-items: end; margin-top: 8px; }
+.usage-bar { height: 100%; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; gap: 4px; }
+.usage-bar span { width: 100%; max-width: 36px; background: var(--accent-soft); border: 1px solid var(--accent); border-radius: 6px 6px 2px 2px; }
+.usage-bar small { color: var(--muted); font-size: 0.72rem; }
+.usage-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.usage-list li { display: flex; align-items: center; gap: 10px; padding: 6px 10px; border-radius: 8px; background: var(--surface-2); min-width: 0; }
+
+/* Agent memory */
+.list-row.is-retired { opacity: 0.55; }
+.segmented[role="tablist"] { align-self: flex-start; }

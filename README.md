@@ -3,7 +3,13 @@
 A multi-user AI job crawler. People sign up (email + password or Google), upload a resume, and get matching jobs from any site, newest first, scored against their resume. Tailored, ATS-friendly resumes are generated only when the user clicks **Generate resume** on a job.
 
 - **Resume → profile:** the PDF/DOCX text is extracted; AI turns it into target roles, skills, experience and cities (all editable).
-- **Crawling:** every hour (opt-in) or on demand. AI web search covers job boards, public LinkedIn/Naukri listings and company sites; target company career pages are read directly (Greenhouse, Lever, Ashby) or by the AI.
+- **Crawling:** every hour (opt-in) or on demand. Each run:
+  1. **Plans keywords:** the AI turns the profile into ~24 job and ~8 company search keywords, re-planned when the profile changes. Keywords that find good jobs are favoured; ones that keep finding nothing are retired. Users can add or retire keywords.
+  2. **Searches the web:** one small AI search per keyword (search results only, no page opening). Then our own fetcher reads each job page for its description and drops dead links.
+  3. **Discovers companies (daily):** AI search suggests companies likely to hire the candidate (up to 40). Their careers page is found and verified without AI, from the homepage links (rendered in the browser if needed) or common paths, and then added automatically.
+  4. **Crawls career pages:** the 10 stalest target companies per run. Greenhouse, Lever, Ashby, Workday and SmartRecruiters are read through their JSON APIs; other sites through the browser; one AI `site:` search is the capped fallback.
+- **Agent memory:** Activity → Memory shows companies (AI-found or yours, with results per page), keywords with their yield, and every visited page. Pages are remembered for 90 days so known jobs are not re-read and failing sites are backed off.
+- **Token usage:** every AI call is metered (input, output, cached tokens, estimated list-price cost). Settings → AI usage shows today vs the daily budget (default 1.5M tokens), the last 7 days, and usage by step, model and run. Before each call the worker checks it fits the budget, and searches always leave 15% for scoring. Once the budget is used up, AI steps pause until midnight IST while the free crawls (career APIs, browser) continue. A typical run uses ~200k tokens.
 - **Scoring:** match %, relevancy, a short summary, ATS % and missing keywords per job.
 - **Bring your own AI:** each user saves a Cursor and/or OpenAI key (encrypted at rest) and picks the provider + model that does all the work.
 - **Google Drive (optional):** a per-user "Job Matches" sheet (newest first) and a folder of generated resume PDFs.

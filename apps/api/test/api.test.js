@@ -224,6 +224,39 @@ test("analysed profile suggestions can be reviewed, partly applied and dismissed
   assert.equal((await agent.post("/api/profile/suggestion/apply").send({ fields: { skills: "add" } })).status, 404);
 });
 
+test("agent memory and token usage are per user, with keyword controls", async () => {
+  const { SearchQuery, VisitedPage, AiUsage } = require("@jobportal/db");
+  const { agent } = await signup("memory@example.com");
+  const other = await signup("memory-other@example.com");
+  const me = await User.findOne({ email: "memory@example.com" });
+  const them = await User.findOne({ email: "memory-other@example.com" });
+  await SearchQuery.create({ user_id: me._id, kind: "jobs", text: "Procurement Analyst Bengaluru", key: "procurement analyst bengaluru", uses: 2, new_jobs: 5, good_matches: 2 });
+  await VisitedPage.create({ user_id: me._id, url: "https://careers.acme.com/jobs/1", domain: "careers.acme.com", kind: "job", jobs_found: 1 });
+  await AiUsage.create({ user_id: me._id, provider: "cursor", model: "composer-2.5", purpose: "Web search: buyer", total_tokens: 12000, est_cost_usd: 0.01, included_in_plan: true });
+  await AiUsage.create({ user_id: them._id, provider: "cursor", model: "composer-2.5", purpose: "Secret", total_tokens: 999999 });
+
+  const memory = await agent.get("/api/agent/memory");
+  assert.equal(memory.body.queries[0].text, "Procurement Analyst Bengaluru");
+  assert.equal(memory.body.visited[0].domain, "careers.acme.com");
+  assert.equal(memory.body.totals.pages, 1);
+
+  const added = await agent.post("/api/agent/queries").send({ text: "SAP Ariba jobs" });
+  assert.equal(added.status, 201);
+  assert.equal(added.body.query.origin, "user");
+  const retired = await agent.patch(`/api/agent/queries/${added.body.query.id}`).send({ retired: true });
+  assert.equal(retired.body.query.retired, true);
+  assert.equal((await other.agent.patch(`/api/agent/queries/${added.body.query.id}`).send({ retired: false })).status, 404);
+
+  const usage = await agent.get("/api/usage");
+  assert.equal(usage.body.today.tokens, 12000);
+  assert.equal(usage.body.today.budget, 1500000);
+  assert.equal(usage.body.last7.length, 7);
+  assert.equal(usage.body.last7[6].tokens, 12000);
+  assert.equal(usage.body.by_purpose[0].purpose, "Web search");
+  assert.equal(usage.body.by_model[0].included_in_plan, true);
+  assert.equal(JSON.stringify(usage.body).includes("999999"), false);
+});
+
 test("AI key and crawl endpoints validate input and prerequisites", async () => {
   const { agent } = await signup("ai@example.com");
   assert.equal((await agent.put("/api/settings/ai-key").send({ provider: "cursor", api_key: "short" })).status, 400);

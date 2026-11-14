@@ -1,9 +1,18 @@
 const { extractJsonArray } = require("@jobportal/ai");
-const { detectBoard, fetchBoardJobs } = require("./career-boards");
-const { matchesLocation } = require("./normalize");
+const { contextOptions } = require("@jobportal/portals");
+const { detectBoard, fetchBoardJobs, fetchBoardJobDetail } = require("./career-boards");
+const { crawlCareerSite } = require("./career-site");
+const { recordVisit } = require("./memory");
+const { matchesLocation, normalizeUrl } = require("./normalize");
+const { enrichJobs } = require("./enrich");
+const { queryKey } = require("./planner");
 
 const ROLES_PER_SEARCH = 3;
-const GENERIC_PAGES_PER_SEARCH = 4;
+const SEARCH_CONCURRENCY = 3;
+const RECRAWL_HOURS = 12;
+const MAX_FAILURES = 5;
+const MAX_AI_FALLBACKS = 2;
+const BOARD_DETAILS = 8;
 
 const GENERIC_TITLE_WORDS = new Set([
   "analyst", "executive", "manager", "specialist", "associate", "lead", "senior", "junior", "and", "of", "the",
@@ -18,7 +27,7 @@ function uniqueRoles(profile) {
     .filter((r) => r && !seen.has(r.toLowerCase()) && seen.add(r.toLowerCase()));
 }
 
-/** Rotates through target roles so consecutive runs cover different roles. */
+/** Rotates through target roles so consecutive runs cover different roles (fallback when there is no plan). */
 function buildSearchBatches(profile, { searches = 3, rotation = 0 } = {}) {
   const roles = uniqueRoles(profile);
   if (!roles.length) return [];
@@ -36,33 +45,52 @@ function locationPhrase(profile) {
   return profile.remote_ok ? `${base} (remote roles are also fine)` : `${base} (on-site or hybrid in these cities)`;
 }
 
-const JOB_JSON_SHAPE =
-  '{"title":"","company":"","location":"","apply_url":"","source_site":"","posted":"date or relative text, empty if unknown","experience":"","description":"key responsibilities and requirements, max 1200 characters"}';
+const SEARCH_JSON_SHAPE =
+  '{"title":"","company":"","location":"","apply_url":"","source_site":"","posted":"date or relative text, empty if unknown","description":"one or two sentences from the snippet"}';
 
-function webSearchPrompt({ roles, profile, settings }) {
-  return `You are a job researcher. Use web search (open pages when needed) to find up to ${settings.jobs_per_search} CURRENTLY OPEN job postings.
+/** Every extra agent turn re-sends all earlier results, so the prompt asks for exactly one search. */
+function webSearchPrompt({ query, profile, settings }) {
+  return `Make exactly ONE web search for: ${query}
+Then answer straight away from those results. Do not refine, verify or open pages; dates, location and experience are checked separately.
 
-Candidate: ~${profile.experience_years || 0} years of experience. Key skills: ${(profile.skills || []).slice(0, 15).join(", ")}.
-Target roles for this search: ${roles.join("; ")}
-Location: ${locationPhrase(profile)}
-Only postings from the last ${settings.max_job_age_days} days when the posting shows a date.
-${profile.exclude_companies?.length ? `Exclude these companies: ${profile.exclude_companies.join(", ")}.` : ""}
+Return up to ${settings.jobs_per_search} job postings that look currently open and relevant to: ${uniqueRoles(profile).slice(0, 6).join("; ")} in ${locationPhrase(profile)}.
+Prefer links to the company's own careers page or ATS posting over job boards. Skip search pages and lists of many jobs.
 
-Search broadly: company career pages (Workday, Greenhouse, Lever, SuccessFactors, iCIMS, custom sites), LinkedIn and Naukri public listings, Indeed, Foundit, Instahyre, iimjobs, Hirist, apna, Shine, Glassdoor, Cutshort, Wellfound.
-Only include postings that match the target roles and experience level. Use the most direct apply URL (prefer the company's own posting).
-
-Return ONLY a JSON array (no prose). Each item: ${JOB_JSON_SHAPE}`;
+Return ONLY a JSON array (no prose), [] if nothing fits. Each item: ${SEARCH_JSON_SHAPE}`;
 }
 
-function careerPagesPrompt({ pages, profile, perPage }) {
-  const list = pages.map((p, i) => `${i + 1}. ${p.name || "Company"} — ${p.url}`).join("\n");
-  return `Open each company careers page below and list CURRENTLY OPEN roles in ${locationPhrase(profile)} that fit these target roles: ${uniqueRoles(profile).join("; ")} (~${profile.experience_years || 0} years experience).
-If a page needs JavaScript or shows no listings, use web search restricted to that company's careers domain or its ATS.
-Up to ${perPage} roles per company. Skip roles that clearly do not fit.
+async function inPool(items, size, fn) {
+  const settled = new Array(items.length);
+  let next = 0;
+  async function worker() {
+    while (next < items.length) {
+      const i = next++;
+      try {
+        settled[i] = { status: "fulfilled", value: await fn(items[i]) };
+      } catch (reason) {
+        settled[i] = { status: "rejected", reason };
+      }
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(size, items.length) }, worker));
+  return settled;
+}
 
-${list}
+function careerPagePrompt({ page, profile, perPage }) {
+  const host = (() => {
+    try {
+      return new URL(page.url).hostname.replace(/^www\./, "");
+    } catch {
+      return page.name;
+    }
+  })();
+  const roles = uniqueRoles(profile).slice(0, 3).join(" OR ");
+  return `Make exactly ONE web search: site:${host} ${roles} ${(profile.target_locations || [])[0] || ""}
+Then answer straight away from those results; do not open pages or search again.
 
-Return ONLY a JSON array (no prose). Each item: ${JOB_JSON_SHAPE}`;
+List up to ${perPage} individual job postings at ${page.name || host} (not search or listing pages) that fit: ${uniqueRoles(profile).join("; ")}.
+
+Return ONLY a JSON array (no prose), [] if nothing fits. Each item: ${SEARCH_JSON_SHAPE}`;
 }
 
 function titleTokens(profile) {
@@ -80,74 +108,114 @@ function titleMatches(title, tokens) {
   return !tokens.length || tokens.some((token) => t.includes(token));
 }
 
-async function searchWeb({ ai, profile, settings, log, rotation }) {
-  const batches = buildSearchBatches(profile, { searches: settings.searches_per_run, rotation });
-  const settled = await Promise.allSettled(
-    batches.map(async (roles) => {
-      const jobs = extractJsonArray(await ai.search(webSearchPrompt({ roles, profile, settings }), { label: `Web search: ${roles.join(", ")}` }));
-      await log.info(`Web search found ${jobs.length} postings for ${roles.join(", ")}`);
-      return jobs.map((job) => ({ ...job, source: "web" }));
-    })
-  );
-  return collect(settled, batches.map((b) => b.join(", ")), log);
-}
-
 async function collect(settled, labels, log) {
   const jobs = [];
   for (const [i, outcome] of settled.entries()) {
     if (outcome.status === "fulfilled") jobs.push(...outcome.value);
     else {
-      if (outcome.reason?.name === "AiKeyError") throw outcome.reason;
+      if (["AiKeyError", "BudgetExceededError"].includes(outcome.reason?.name)) throw outcome.reason;
       await log.warn(`Search failed (${labels[i]}): ${outcome.reason?.message}`);
     }
   }
   return jobs;
 }
 
-async function crawlCareerPages({ ai, profile, log, perPage = 6 }) {
-  const pages = (profile.career_pages || []).filter((p) => p.enabled !== false && p.url);
+/**
+ * Runs one small AI web search per planned query, a few at a time.
+ * Each job carries `found_by` (the query key) so query yield can be tracked.
+ */
+async function searchWeb({ ai, profile, settings, log, queries, rotation }) {
+  const texts = queries?.length
+    ? queries.map((q) => q.text)
+    : buildSearchBatches(profile, { searches: settings.searches_per_run, rotation })
+        .flat()
+        .map((r) => `${r} jobs ${(profile.target_locations || [])[0] || ""}`.trim());
+  const settled = await inPool(texts, SEARCH_CONCURRENCY, async (query) => {
+    const jobs = extractJsonArray(await ai.search(webSearchPrompt({ query, profile, settings }), { label: `Web search: ${query}`, reserve: 0.15 }));
+    await log.info(`Web search found ${jobs.length} postings for: ${query}`);
+    return jobs.map((job) => ({ ...job, source: "web", found_by: queryKey(query) }));
+  });
+  return collect(settled, texts, log);
+}
+
+function duePages(profile, limit) {
+  const cutoff = Date.now() - RECRAWL_HOURS * 3600 * 1000;
+  return (profile.career_pages || [])
+    .filter((p) => p.enabled !== false && p.url && (p.failures || 0) < MAX_FAILURES)
+    .filter((p) => !p.last_crawled_at || new Date(p.last_crawled_at).getTime() < cutoff)
+    .sort((a, b) => new Date(a.last_crawled_at || 0) - new Date(b.last_crawled_at || 0))
+    .slice(0, limit);
+}
+
+async function boardJobs({ board, page, profile, tokens, log }) {
+  const terms = uniqueRoles(profile).slice(0, 2);
+  const all = await fetchBoardJobs(board, { searchTerms: terms });
+  const fit = all.filter((j) => matchesLocation(j.location, profile.target_locations, profile.remote_ok) && titleMatches(j.title, tokens));
+  const detailed = [];
+  for (const job of fit.slice(0, BOARD_DETAILS)) detailed.push(await fetchBoardJobDetail(board, job).catch(() => job));
+  await log.info(`${page.name || page.url}: ${fit.length} matching of ${all.length} open roles (${board.type})`);
+  return detailed.map((j) => ({ ...j, company: page.name || board.token, source: "career_page", source_site: `${page.name || board.token} careers` }));
+}
+
+/**
+ * Crawls the most stale target-company career pages: known job systems through their JSON
+ * APIs, other sites in the browser, AI only as a capped fallback. Updates each page's stats.
+ */
+async function crawlCareerPages({ ai, profile, log, userId, browser, limit = 10, budget, checkCancel }) {
+  const pages = duePages(profile, limit);
+  if (!pages.length) return [];
   const tokens = titleTokens(profile);
+  const context = await browser.newContext(contextOptions({ mobile: false }));
   const jobs = [];
-  const generic = [];
-
-  for (const page of pages) {
-    const board = detectBoard(page.url);
-    page.last_crawled_at = new Date();
-    if (board.type === "generic") {
-      generic.push(page);
-      continue;
-    }
-    try {
-      const all = await fetchBoardJobs(board);
-      const fit = all.filter(
-        (j) => matchesLocation(j.location, profile.target_locations, profile.remote_ok) && titleMatches(j.title, tokens)
-      );
-      jobs.push(...fit.map((j) => ({ ...j, company: page.name || board.token, source: "career_page", source_site: `${page.name || board.token} careers` })));
-      page.last_found = fit.length;
-      page.last_error = "";
-      await log.info(`${page.name || page.url}: ${fit.length} matching of ${all.length} open roles`);
-    } catch (err) {
-      page.last_error = err.message.slice(0, 200);
-      await log.warn(`${page.name || page.url}: ${err.message}`);
-    }
-  }
-
-  const chunks = [];
-  for (let i = 0; i < generic.length; i += GENERIC_PAGES_PER_SEARCH) chunks.push(generic.slice(i, i + GENERIC_PAGES_PER_SEARCH));
-  const settled = await Promise.allSettled(
-    chunks.map(async (chunk) => {
-      const found = extractJsonArray(await ai.search(careerPagesPrompt({ pages: chunk, profile, perPage }), { label: `Career pages: ${chunk.map((p) => p.name || p.url).join(", ")}` }));
-      for (const page of chunk) {
-        const name = String(page.name || "").toLowerCase();
-        page.last_found = found.filter((j) => String(j.company || "").toLowerCase().includes(name)).length;
+  let aiFallbacks = 0;
+  try {
+    for (const page of pages) {
+      await checkCancel();
+      let found = [];
+      try {
+        let board = detectBoard(page.url);
+        if (board.type === "generic") {
+          const site = await crawlCareerSite({ context, entry: page, tokens, userId, log });
+          if (site.board) board = site.board;
+          else found = site.jobs;
+          if (!site.board && !found.length && aiFallbacks < MAX_AI_FALLBACKS && !budget?.exceeded()) {
+            aiFallbacks++;
+            const text = await ai.search(careerPagePrompt({ page, profile, perPage: 6 }), { label: `Career page (AI search): ${page.name || page.url}`, reserve: 0.15 });
+            const listed = extractJsonArray(text)
+              .map((j) => ({ ...j, job_url: normalizeUrl(j.apply_url || j.url), source: "career_page", source_site: `${page.name} careers` }))
+              .filter((j) => j.job_url);
+            found = (await enrichJobs(listed, { userId, log })).alive;
+          }
+          if (!site.board) await log.info(`${page.name || page.url}: ${found.length} matching jobs`);
+        }
+        if (board.type !== "generic") {
+          page.ats = board.type;
+          found = await boardJobs({ board, page, profile, tokens, log });
+        }
+        page.last_found = found.length;
+        page.total_found = (page.total_found || 0) + found.length;
+        page.failures = 0;
         page.last_error = "";
+        await recordVisit(userId, page.url, { kind: board.type === "generic" ? "careers" : "api", status: "ok", jobs: found.length });
+        jobs.push(...found);
+      } catch (err) {
+        if (["AiKeyError", "RunCancelled"].includes(err.name)) throw err;
+        if (err.name === "BudgetExceededError") {
+          page.last_error = "Waiting for AI budget (resets daily)";
+          await log.info(`${page.name || page.url}: AI fallback skipped, daily AI budget reached; retrying next run`);
+          continue;
+        }
+        if (err.name !== "BoardUnavailableError") page.failures = (page.failures || 0) + 1;
+        page.last_error = err.message.slice(0, 200);
+        await recordVisit(userId, page.url, { kind: "careers", status: err.code === "NOT_FOUND" ? "not_found" : "error", note: err.message });
+        await log.warn(`${page.name || page.url}: ${err.message}`);
       }
-      await log.info(`Career pages ${chunk.map((p) => p.name).join(", ")}: ${found.length} roles`);
-      return found.map((j) => ({ ...j, source: "career_page" }));
-    })
-  );
-  jobs.push(...(await collect(settled, chunks.map((c) => c.map((p) => p.name).join(", ")), log)));
+      page.last_crawled_at = new Date();
+    }
+  } finally {
+    await context.close().catch(() => {});
+  }
   return jobs;
 }
 
-module.exports = { buildSearchBatches, searchWeb, crawlCareerPages, titleTokens, titleMatches, locationPhrase };
+module.exports = { buildSearchBatches, searchWeb, crawlCareerPages, duePages, titleTokens, titleMatches, locationPhrase, webSearchPrompt };

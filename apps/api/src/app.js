@@ -15,6 +15,7 @@ const { googleRouter } = require("./routes/google");
 const { adminRouter } = require("./routes/admin");
 const { portalsRouter } = require("./routes/portals");
 const { liveRouter } = require("./routes/live");
+const { agentRouter, usageRouter } = require("./routes/agent");
 
 function createApp(config) {
   const app = express();
@@ -45,6 +46,8 @@ function createApp(config) {
   app.use("/api/runs/live", requireUser, liveRouter());
   app.use("/api/runs", requireUser, runsRouter());
   app.use("/api/portals", requireUser, portalsRouter());
+  app.use("/api/agent", requireUser, agentRouter());
+  app.use("/api/usage", requireUser, usageRouter());
   app.use("/api/admin", requireAdmin, adminRouter());
 
   app.use("/api", notFoundHandler);

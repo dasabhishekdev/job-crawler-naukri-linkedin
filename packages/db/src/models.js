@@ -54,6 +54,10 @@ const userSchema = new Schema(
       jobs_per_search: { type: Number, default: 8 },
       min_match_to_sheet: { type: Number, default: 50 },
       daily_run_limit: { type: Number, default: 24 },
+      daily_token_budget: { type: Number, default: 1500000 },
+      discover_companies: { type: Boolean, default: true },
+      max_companies: { type: Number, default: 40 },
+      career_pages_per_run: { type: Number, default: 10 },
     },
     portals: {
       crawl_enabled: { type: Boolean, default: true },
@@ -84,8 +88,14 @@ const careerPageSchema = new Schema(
     name: { type: String, default: "" },
     url: { type: String, required: true, trim: true },
     enabled: { type: Boolean, default: true },
+    source: { type: String, enum: ["manual", "ai"], default: "manual" },
+    reason: String,
+    ats: String,
+    discovered_at: Date,
     last_crawled_at: Date,
     last_found: { type: Number, default: 0 },
+    total_found: { type: Number, default: 0 },
+    failures: { type: Number, default: 0 },
     last_error: String,
   },
   { _id: true }
@@ -110,6 +120,9 @@ const profileSchema = new Schema(
     structured_resume: { type: Schema.Types.Mixed, default: undefined },
     suggested: { type: Schema.Types.Mixed, default: undefined },
     suggested_at: Date,
+    plan_hash: String,
+    plan_generated_at: Date,
+    last_company_discovery_at: Date,
     edited_by_user: { type: Boolean, default: false },
   },
   { timestamps: true }
@@ -159,6 +172,7 @@ const jobPostingSchema = new Schema(
     experience: String,
     description: String,
     dedupe_key: String,
+    search_query: String,
     first_seen_at: { type: Date, default: Date.now },
     match: { type: matchSchema, default: () => ({}) },
     status: { type: String, enum: JOB_STATUSES, default: "new" },
@@ -262,6 +276,69 @@ const loginTicketSchema = new Schema(
 
 loginTicketSchema.index({ expires_at: 1 }, { expireAfterSeconds: 600 });
 
+const searchQuerySchema = new Schema(
+  {
+    user_id: { type: ObjectId, ref: "User", required: true },
+    kind: { type: String, enum: ["jobs", "companies"], required: true },
+    text: { type: String, required: true, trim: true },
+    key: { type: String, required: true },
+    why: String,
+    origin: { type: String, enum: ["plan", "user"], default: "plan" },
+    uses: { type: Number, default: 0 },
+    results: { type: Number, default: 0 },
+    new_jobs: { type: Number, default: 0 },
+    good_matches: { type: Number, default: 0 },
+    last_used_at: Date,
+    retired: { type: Boolean, default: false },
+  },
+  { timestamps: true }
+);
+
+searchQuerySchema.index({ user_id: 1, kind: 1, key: 1 }, { unique: true });
+
+const visitedPageSchema = new Schema(
+  {
+    user_id: { type: ObjectId, ref: "User", required: true },
+    url: { type: String, required: true },
+    domain: String,
+    kind: { type: String, enum: ["careers", "job", "search", "api"], default: "job" },
+    visits: { type: Number, default: 1 },
+    first_at: { type: Date, default: Date.now },
+    last_at: { type: Date, default: Date.now },
+    last_status: { type: String, enum: ["ok", "error", "not_found", "blocked"], default: "ok" },
+    jobs_found: { type: Number, default: 0 },
+    note: String,
+  },
+  { versionKey: false }
+);
+
+visitedPageSchema.index({ user_id: 1, url: 1 }, { unique: true });
+visitedPageSchema.index({ user_id: 1, last_at: -1 });
+visitedPageSchema.index({ last_at: 1 }, { expireAfterSeconds: 90 * 24 * 3600 });
+
+const aiUsageSchema = new Schema(
+  {
+    user_id: { type: ObjectId, ref: "User", required: true },
+    run_id: { type: ObjectId, ref: "Run" },
+    provider: String,
+    model: String,
+    purpose: String,
+    input_tokens: { type: Number, default: 0 },
+    output_tokens: { type: Number, default: 0 },
+    cache_read_tokens: { type: Number, default: 0 },
+    cache_write_tokens: { type: Number, default: 0 },
+    total_tokens: { type: Number, default: 0 },
+    duration_ms: Number,
+    est_cost_usd: Number,
+    included_in_plan: Boolean,
+    created_at: { type: Date, default: Date.now },
+  },
+  { versionKey: false }
+);
+
+aiUsageSchema.index({ user_id: 1, created_at: -1 });
+aiUsageSchema.index({ created_at: 1 }, { expireAfterSeconds: 180 * 24 * 3600 });
+
 const User = mongoose.model("User", userSchema);
 const Profile = mongoose.model("Profile", profileSchema);
 const Resume = mongoose.model("Resume", resumeSchema);
@@ -272,7 +349,24 @@ const GeneratedResume = mongoose.model("GeneratedResume", generatedResumeSchema,
 const PortalConnection = mongoose.model("PortalConnection", portalConnectionSchema, "portal_connections");
 const LoginTicket = mongoose.model("LoginTicket", loginTicketSchema, "login_tickets");
 
-const ALL_MODELS = [User, Profile, Resume, JobPosting, Run, RunLog, GeneratedResume, PortalConnection, LoginTicket];
+const SearchQuery = mongoose.model("SearchQuery", searchQuerySchema, "search_queries");
+const VisitedPage = mongoose.model("VisitedPage", visitedPageSchema, "visited_pages");
+const AiUsage = mongoose.model("AiUsage", aiUsageSchema, "ai_usage");
+
+const ALL_MODELS = [
+  User,
+  Profile,
+  Resume,
+  JobPosting,
+  Run,
+  RunLog,
+  GeneratedResume,
+  PortalConnection,
+  LoginTicket,
+  SearchQuery,
+  VisitedPage,
+  AiUsage,
+];
 
 async function connectDb(uri) {
   mongoose.set("strictQuery", true);
@@ -299,4 +393,7 @@ module.exports = {
   Run,
   RunLog,
   GeneratedResume,
+  SearchQuery,
+  VisitedPage,
+  AiUsage,
 };

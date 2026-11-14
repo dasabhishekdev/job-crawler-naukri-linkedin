@@ -53,6 +53,10 @@ function publicCrawler(user) {
     jobs_per_search: c.jobs_per_search,
     min_match_to_sheet: c.min_match_to_sheet,
     daily_run_limit: c.daily_run_limit,
+    daily_token_budget: c.daily_token_budget ?? 1500000,
+    discover_companies: c.discover_companies !== false,
+    max_companies: c.max_companies ?? 40,
+    career_pages_per_run: c.career_pages_per_run ?? 10,
   };
 }
 

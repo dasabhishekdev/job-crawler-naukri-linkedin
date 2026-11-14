@@ -70,6 +70,12 @@ export const api = {
   startCrawl: () => request("/runs/crawl", { method: "POST" }),
   cancelRun: (id) => request(`/runs/${id}/cancel`, { method: "POST" }),
 
+  getMemory: () => request("/agent/memory"),
+  addQuery: (text, kind = "jobs") => request("/agent/queries", { method: "POST", body: { text, kind } }),
+  setQueryRetired: (id, retired) => request(`/agent/queries/${id}`, { method: "PATCH", body: { retired } }),
+  refreshPlan: () => request("/agent/plan/refresh", { method: "POST" }),
+  getUsage: () => request("/usage"),
+
   getPortals: () => request("/portals"),
   connectPortal: (portal, viewport) => request(`/portals/${portal}/connect`, { method: "POST", body: { viewport } }),
   disconnectPortal: (portal) => request(`/portals/${portal}`, { method: "DELETE" }),

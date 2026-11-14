@@ -35,14 +35,22 @@ export function CareerPages({ profile, onSaved }) {
                 <Toggle
                   checked={page.enabled !== false}
                   onChange={(checked) => persist(pages.map((p, j) => (j === i ? { ...p, enabled: checked } : p)))}
-                  label={page.name || new URL(page.url).host}
-                  description={
+                  label={
+                    <>
+                      {page.name || new URL(page.url).host} {page.source === "ai" ? <span className="badge badge-blue">AI found</span> : null}{" "}
+                      {page.ats && page.ats !== "website" ? <span className="badge">{page.ats}</span> : null}
+                    </>
+                  }
+                  description={[
+                    page.reason,
                     page.last_error
                       ? `Error: ${page.last_error}`
                       : page.last_crawled_at
-                        ? `${page.last_found || 0} matching roles · checked ${timeAgo(page.last_crawled_at)}`
-                        : "Not checked yet"
-                  }
+                        ? `${page.last_found || 0} matching roles last time · ${page.total_found || 0} in total · checked ${timeAgo(page.last_crawled_at)}`
+                        : "Not checked yet",
+                  ]
+                    .filter(Boolean)
+                    .join(" · ")}
                 />
                 <a className="small truncate" href={page.url} target="_blank" rel="noreferrer">
                   {page.url}

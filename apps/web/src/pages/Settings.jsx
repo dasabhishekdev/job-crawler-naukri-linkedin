@@ -9,6 +9,7 @@ import { CareerPages } from "../settings/CareerPages";
 import { DriveSettings } from "../settings/DriveSettings";
 import { AccountSettings } from "../settings/AccountSettings";
 import { PortalSettings } from "../settings/PortalSettings";
+import { UsagePanel } from "../settings/UsagePanel";
 
 const DRIVE_NOTICES = {
   connected: "Google Drive connected. Your sheet is ready.",
@@ -49,6 +50,9 @@ export function SettingsPage() {
       <Alert tone="error">{error}</Alert>
       <Card title="AI provider">
         <AiSettings settings={settings} onChange={update} />
+      </Card>
+      <Card title="AI usage">
+        <UsagePanel refreshKey={settings?.crawler?.daily_token_budget} />
       </Card>
       <Card title="Search">
         <SearchSettings settings={settings} onChange={update} />
