@@ -15,7 +15,7 @@ async function portalCrawlTask(ctx) {
   const connections = await loadConnectedStates(user._id);
   if (!connections.length) throw new Error("Connect LinkedIn or Naukri in Settings first.");
 
-  return withAi(user, async (ai) => {
+  return withAi(ctx, async (ai) => {
     const browser = await getBrowser();
     const raw = [];
     const expired = [];

@@ -8,6 +8,7 @@ A multi-user AI job crawler. People sign up (email + password or Google), upload
 - **Bring your own AI:** each user saves a Cursor and/or OpenAI key (encrypted at rest) and picks the provider + model that does all the work.
 - **Google Drive (optional):** a per-user "Job Matches" sheet (newest first) and a folder of generated resume PDFs.
 - **LinkedIn / Naukri (optional):** users sign in through a private in-app login window; the platform then crawls each portal's recommended jobs and a logged-in search every 3 hours. Optional daily Naukri profile refresh. No auto-apply.
+- **Live activity:** the Activity page streams every background step as it happens (Server-Sent Events from `/api/runs/live`): AI calls with provider, model and duration, the search agent's narration and queries, each job found, opened and scored. Filter by AI, Jobs or Problems; the Jobs page banner shows the latest line.
 - **Admin:** users with emails in `ADMIN_EMAILS` can see usage, disable accounts and issue one-time password resets.
 
 ## Layout

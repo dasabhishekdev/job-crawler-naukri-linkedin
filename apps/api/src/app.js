@@ -14,6 +14,7 @@ const { runsRouter } = require("./routes/runs");
 const { googleRouter } = require("./routes/google");
 const { adminRouter } = require("./routes/admin");
 const { portalsRouter } = require("./routes/portals");
+const { liveRouter } = require("./routes/live");
 
 function createApp(config) {
   const app = express();
@@ -41,6 +42,7 @@ function createApp(config) {
   app.use("/api/settings", requireUser, settingsRouter());
   app.use("/api/jobs", requireUser, jobsRouter());
   app.use("/api/generated-resumes", requireUser, generatedRouter());
+  app.use("/api/runs/live", requireUser, liveRouter());
   app.use("/api/runs", requireUser, runsRouter());
   app.use("/api/portals", requireUser, portalsRouter());
   app.use("/api/admin", requireAdmin, adminRouter());

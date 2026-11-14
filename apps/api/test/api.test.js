@@ -148,6 +148,48 @@ test("portal connect issues a single-use, short-lived ticket bound to the user",
   assert.equal((await request(app).post("/api/portals/linkedin/connect").send({})).status, 401);
 });
 
+test("live log stream sends the user's own backlog and new lines as Server-Sent Events", async () => {
+  const http = require("node:http");
+  const { RunLog, Run } = require("@jobportal/db");
+  const me = await signup("live@example.com");
+  await signup("live-other@example.com");
+  const meUser = await User.findOne({ email: "live@example.com" });
+  const otherUser = await User.findOne({ email: "live-other@example.com" });
+  const run = await Run.create({ user_id: meUser._id, kind: "crawl", status: "running" });
+  await RunLog.create({ run_id: run._id, user_id: meUser._id, kind: "crawl", tag: "ai", message: "Web search · started" });
+  const otherRun = await Run.create({ user_id: otherUser._id, kind: "crawl", status: "running" });
+  await RunLog.create({ run_id: otherRun._id, user_id: otherUser._id, kind: "crawl", message: "SECRET other user line" });
+
+  const cookie = me.res.headers["set-cookie"][0].split(";")[0];
+  const server = app.listen(0);
+  const port = server.address().port;
+  const body = await new Promise((resolve, reject) => {
+    let data = "";
+    const req = http.get({ port, path: "/api/runs/live", headers: { cookie } }, (res) => {
+      assert.equal(res.statusCode, 200);
+      assert.match(res.headers["content-type"], /text\/event-stream/);
+      res.setEncoding("utf8");
+      res.on("data", (chunk) => {
+        data += chunk;
+        if (data.includes("Scored 82%")) {
+          req.destroy();
+          resolve(data);
+        }
+      });
+    });
+    req.on("error", (err) => (err.code === "ECONNRESET" ? resolve(data) : reject(err)));
+    setTimeout(() => RunLog.create({ run_id: run._id, user_id: meUser._id, kind: "crawl", tag: "job", message: "Scored 82% · Buyer" }), 300);
+    setTimeout(() => reject(new Error(`timed out; got: ${data}`)), 6000);
+  });
+  server.close();
+  assert.match(body, /event: logs/);
+  assert.match(body, /Web search · started/);
+  assert.match(body, /event: runs/);
+  assert.match(body, /Scored 82% · Buyer/);
+  assert.doesNotMatch(body, /SECRET other user line/);
+  assert.equal((await request(app).get("/api/runs/live")).status, 401);
+});
+
 test("AI key and crawl endpoints validate input and prerequisites", async () => {
   const { agent } = await signup("ai@example.com");
   assert.equal((await agent.put("/api/settings/ai-key").send({ provider: "cursor", api_key: "short" })).status, 400);

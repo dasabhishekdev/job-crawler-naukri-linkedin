@@ -17,7 +17,7 @@ async function generateResumeTask({ user, run, log, stage, checkCancel }) {
   );
 
   try {
-    const result = await withAi(user, async (ai) => {
+    const result = await withAi({ user, log }, async (ai) => {
       if (!job.match?.keywords?.length) {
         await stage("score", "Reading the job description");
         await scoreJobs({ ai, jobs: [job], resumeText: resume.text, profile: profile || {}, log, checkCancel });

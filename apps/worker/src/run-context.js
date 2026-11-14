@@ -10,10 +10,10 @@ class RunCancelled extends Error {
 function createRunContext(run) {
   const tag = `[${run.kind} ${String(run._id).slice(-6)}]`;
 
-  async function write(level, message) {
+  async function write(level, message, logTag = "step") {
     const text = String(message).slice(0, 1000);
     (level === "error" ? console.error : console.log)(`${tag} ${text}`);
-    await RunLog.create({ run_id: run._id, user_id: run.user_id, level, message: text }).catch(() => {});
+    await RunLog.create({ run_id: run._id, user_id: run.user_id, kind: run.kind, level, tag: logTag, message: text }).catch(() => {});
   }
 
   return {
@@ -22,6 +22,9 @@ function createRunContext(run) {
       info: (m) => write("info", m),
       warn: (m) => write("warn", m),
       error: (m) => write("error", m),
+      ai: (m) => write("info", m, "ai"),
+      search: (m) => write("info", m, "search"),
+      job: (m) => write("info", m, "job"),
     },
     async stage(stage, detail = "") {
       await Run.updateOne({ _id: run._id }, { $set: { stage, detail, heartbeat_at: new Date() } });

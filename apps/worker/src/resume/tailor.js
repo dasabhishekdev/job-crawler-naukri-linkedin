@@ -31,7 +31,7 @@ async function tailorResume({ ai, resumeText, structured, job }) {
     const resume = await ai.json(
       tailorPrompt({ resumeText, structured, job, missing: before.missing }) +
         (problems.length ? `\n\nYour previous attempt was rejected: ${problems.join("; ")}. Fix these.` : ""),
-      { maxTokens: 2500 }
+      { maxTokens: 2500, label: attempt ? "Rewriting the resume after a truth-check failure" : `Writing your resume for ${job.title}` }
     );
     problems = verifyTailoredResume(resume, resumeText);
     if (!problems.length) {

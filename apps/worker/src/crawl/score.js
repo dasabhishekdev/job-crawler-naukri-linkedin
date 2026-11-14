@@ -69,7 +69,7 @@ async function scoreJobs({ ai, jobs, resumeText, profile, log, checkCancel }) {
   await mapLimit(batches, CONCURRENCY[ai.provider] || 2, async (batch) => {
     await checkCancel();
     try {
-      const reply = await ai.json(scorePrompt({ jobs: batch, resumeText, profile }), { maxTokens: 700 * batch.length });
+      const reply = await ai.json(scorePrompt({ jobs: batch, resumeText, profile }), { maxTokens: 700 * batch.length, label: `Scoring ${batch.length} job${batch.length > 1 ? "s" : ""}` });
       const results = Array.isArray(reply.results) ? reply.results : [reply];
       for (const job of batch) {
         const result = results.find((r) => String(r.id) === String(job._id)) || (batch.length === 1 ? results[0] : null);
@@ -77,6 +77,7 @@ async function scoreJobs({ ai, jobs, resumeText, profile, log, checkCancel }) {
         job.match = toMatch(result, resumeText);
         await job.save();
         scored++;
+        await log.job(`${job.match.score}% match · ATS ${job.match.ats_score ?? "–"}% · ${job.title} at ${job.company}`);
       }
     } catch (err) {
       if (err.name === "AiKeyError") throw err;

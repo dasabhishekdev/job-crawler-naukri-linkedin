@@ -1,15 +1,9 @@
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { api } from "../api";
 import { usePoll } from "../hooks";
 import { Alert, Button, Empty, Sheet, formatDateTime, timeAgo } from "../components/ui";
+import { LiveConsole, KIND_LABELS } from "../components/LiveConsole";
 
-const KIND_LABELS = {
-  crawl: "Web job search",
-  portal_crawl: "LinkedIn / Naukri search",
-  parse_resume: "Resume analysis",
-  generate_resume: "Tailored resume",
-  naukri_refresh: "Naukri profile refresh",
-};
 const STATUS_TONES = { completed: "badge-green", failed: "badge-red", cancelled: "badge-orange", running: "badge-blue", queued: "badge" };
 
 function summary(run) {
@@ -31,28 +25,15 @@ function summary(run) {
   }
 }
 
-function RunLogs({ runId }) {
-  const [data, setData] = useState(null);
-  usePoll(async () => setData(await api.getRun(runId)), 4000, Boolean(runId) && (!data || ["queued", "running"].includes(data.run.status)));
-  if (!data) return <p className="muted">Loading…</p>;
+function RunDetail({ run }) {
   return (
     <div className="stack">
       <p className="muted small">
-        Started {formatDateTime(data.run.started_at || data.run.createdAt)}
-        {data.run.finished_at ? ` · finished ${formatDateTime(data.run.finished_at)}` : ""}
+        Started {formatDateTime(run.started_at || run.createdAt)}
+        {run.finished_at ? ` · finished ${formatDateTime(run.finished_at)}` : ""}
       </p>
-      {data.run.error ? <Alert tone="error">{data.run.error}</Alert> : null}
-      <div className="log-box" role="log">
-        {data.logs.length ? (
-          data.logs.map((l) => (
-            <p key={l._id} className={`log log-${l.level}`}>
-              <time>{new Date(l.created_at).toLocaleTimeString()}</time> {l.message}
-            </p>
-          ))
-        ) : (
-          <p className="muted">No log lines yet.</p>
-        )}
-      </div>
+      {run.error ? <Alert tone="error">{run.error}</Alert> : null}
+      <LiveConsole runId={run._id} title={KIND_LABELS[run.kind] || "Run"} height="60vh" />
     </div>
   );
 }
@@ -60,41 +41,61 @@ function RunLogs({ runId }) {
 export function ActivityPage() {
   const [runs, setRuns] = useState(null);
   const [error, setError] = useState("");
-  const [openId, setOpenId] = useState(null);
+  const [open, setOpen] = useState(null);
+  const statuses = useRef({});
+  const known = useRef(new Set());
 
   const load = useCallback(async () => {
     try {
-      setRuns((await api.listRuns({ limit: 30 })).runs);
+      const list = (await api.listRuns({ limit: 30 })).runs;
+      known.current = new Set(list.map((r) => r._id));
+      setRuns(list);
     } catch (err) {
       setError(err.message);
     }
   }, []);
 
-  const hasActive = runs?.some((r) => ["queued", "running"].includes(r.status));
-  usePoll(load, hasActive ? 4000 : 20000);
+  usePoll(load, 30000);
+
+  const onRunUpdate = useCallback(
+    (liveRuns) => {
+      let changed = false;
+      for (const r of Object.values(liveRuns)) {
+        if (statuses.current[r._id] === r.status) continue;
+        if (r._id in statuses.current || !known.current.has(r._id)) changed = true;
+        statuses.current[r._id] = r.status;
+      }
+      if (changed) load();
+    },
+    [load]
+  );
 
   return (
     <div className="page">
       <header className="page-head">
         <div>
           <h1>Activity</h1>
-          <p className="muted small">Searches, resume analysis and generated resumes.</p>
+          <p className="muted small">Watch searches, AI scoring and resume writing as they happen.</p>
         </div>
         <Button variant="secondary" onClick={() => api.startCrawl().then(load).catch((e) => setError(e.message))}>
           Search now
         </Button>
       </header>
       <Alert tone="error">{error}</Alert>
+
+      <LiveConsole onRunUpdate={onRunUpdate} />
+
+      <h2 className="section-title">History</h2>
       {runs === null ? (
         <p className="muted">Loading…</p>
       ) : runs.length ? (
         <ul className="list card">
           {runs.map((run) => (
-            <li key={run._id} className="list-row clickable" onClick={() => setOpenId(run._id)}>
+            <li key={run._id} className="list-row clickable" onClick={() => setOpen(run)}>
               <div className="grow min0">
                 <p className="strong">
                   {KIND_LABELS[run.kind] || run.kind}
-                  <span className="muted small"> · {run.triggered_by === "schedule" ? "hourly" : run.triggered_by} · {timeAgo(run.createdAt)}</span>
+                  <span className="muted small"> · {run.triggered_by === "schedule" ? "scheduled" : run.triggered_by} · {timeAgo(run.createdAt)}</span>
                 </p>
                 <p className="muted small truncate">{run.error || summary(run)}</p>
               </div>
@@ -117,8 +118,8 @@ export function ActivityPage() {
       ) : (
         <Empty title="Nothing has run yet">Start a search from the Jobs page.</Empty>
       )}
-      <Sheet open={Boolean(openId)} onClose={() => setOpenId(null)} title="Run details">
-        {openId ? <RunLogs runId={openId} /> : null}
+      <Sheet open={Boolean(open)} onClose={() => setOpen(null)} title="Run details">
+        {open ? <RunDetail run={open} /> : null}
       </Sheet>
     </div>
   );

@@ -33,7 +33,7 @@ function toRecord(raw, { profile, maxAgeDays }) {
   };
 }
 
-async function storeNewJobs(records, { userId, runId }) {
+async function storeNewJobs(records, { userId, runId, log }) {
   const unique = [];
   const urls = new Set();
   const keys = new Set();
@@ -56,6 +56,7 @@ async function storeNewJobs(records, { userId, runId }) {
     try {
       await JobPosting.create({ ...r, user_id: userId, run_id: runId, first_seen_at: new Date() });
       created++;
+      if (log) await log.job(`New job: ${r.title} at ${r.company}${r.source_site ? ` · ${r.source_site}` : ""}`);
     } catch (err) {
       if (err.code !== 11000) throw err;
     }
@@ -68,7 +69,7 @@ async function crawlTask({ user, run, log, stage, count, checkCancel }) {
   if (!profile?.target_roles?.length) throw new Error("Add at least one target role to your profile first.");
   const settings = user.crawler;
 
-  return withAi(user, async (ai) => {
+  return withAi({ user, log }, async (ai) => {
     await log.info(`Searching for ${profile.target_roles.length} roles in ${profile.target_locations.join(", ") || "any location"} with ${ai.provider}`);
     await stage("search", "Searching job sites and career pages");
     const searches = [];
@@ -101,7 +102,7 @@ async function ingestJobs({ ai, raw, user, profile, resume, run, log, stage, cou
     if (rec.skip) skipped[rec.skip] = (skipped[rec.skip] || 0) + 1;
     else records.push(rec);
   }
-  const created = await storeNewJobs(records, { userId: user._id, runId: run._id });
+  const created = await storeNewJobs(records, { userId: user._id, runId: run._id, log });
   await count({ found: raw.length, matched_filters: records.length, new: created });
   const skipText = Object.entries(skipped).map(([reason, n]) => `${n} ${reason}`).join(", ");
   await log.info(

@@ -3,6 +3,7 @@ const os = require("os");
 const path = require("path");
 const { Agent, Cursor, CursorAgentError } = require("@cursor/sdk");
 const { AiKeyError } = require("../errors");
+const { createNarrator } = require("../narration");
 
 const WEB_TOOLS = ["webSearch", "webFetch"];
 const DEFAULT_MODEL = "composer-2.5";
@@ -29,7 +30,20 @@ async function listModels(apiKey) {
   return models.map((m) => ({ id: m.id, label: m.displayName || m.id, description: m.description || "" }));
 }
 
-async function runAgent(prompt, { apiKey, model, tools, timeoutMs }) {
+/** Streams the agent's narration to `onEvent` while waiting for its final answer. */
+async function streamNarration(run, onEvent) {
+  const narrator = createNarrator((text) => onEvent({ type: "narration", text }));
+  for await (const event of run.stream()) {
+    if (event.type === "assistant") {
+      for (const block of event.message?.content || []) {
+        if (block.type === "text") narrator.push(block.text);
+      }
+    }
+  }
+  narrator.flush();
+}
+
+async function runAgent(prompt, { apiKey, model, tools, timeoutMs, onEvent }) {
   let agent;
   try {
     agent = await Agent.create({
@@ -49,6 +63,7 @@ async function runAgent(prompt, { apiKey, model, tools, timeoutMs }) {
     timer = setTimeout(() => {
       if (run.supports("cancel")) run.cancel().catch(() => {});
     }, timeoutMs);
+    if (onEvent) await streamNarration(run, onEvent).catch(() => {});
     const result = await run.wait();
     if (result.status !== "finished") {
       throw new Error(`Cursor agent ${result.status}${result.error?.message ? `: ${result.error.message}` : ""}`);
@@ -60,13 +75,13 @@ async function runAgent(prompt, { apiKey, model, tools, timeoutMs }) {
   }
 }
 
-function createCursorProvider({ apiKey, model }) {
+function createCursorProvider({ apiKey, model, onEvent }) {
   return {
     async complete(prompt, { timeoutMs = 4 * 60 * 1000 } = {}) {
       return runAgent(`${prompt}\n\nReply with the JSON only.`, { apiKey, model, tools: [], timeoutMs });
     },
     async search(prompt, { timeoutMs = 8 * 60 * 1000 } = {}) {
-      return runAgent(prompt, { apiKey, model, tools: WEB_TOOLS, timeoutMs });
+      return runAgent(prompt, { apiKey, model, tools: WEB_TOOLS, timeoutMs, onEvent });
     },
   };
 }

@@ -8,6 +8,7 @@ const PORTALS = ["linkedin", "naukri"];
 const JOB_SOURCES = ["web", "career_page", ...PORTALS];
 const RUN_KINDS = ["parse_resume", "crawl", "generate_resume", "portal_crawl", "naukri_refresh"];
 const RUN_STATUSES = ["queued", "running", "completed", "failed", "cancelled"];
+const LOG_TAGS = ["step", "ai", "search", "job"];
 const JOB_STATUSES = ["new", "saved", "applied", "hidden"];
 
 const aiKeySchema = new Schema(
@@ -196,7 +197,9 @@ const runLogSchema = new Schema(
   {
     run_id: { type: ObjectId, ref: "Run", required: true, index: true },
     user_id: { type: ObjectId, ref: "User", required: true },
+    kind: { type: String, enum: RUN_KINDS },
     level: { type: String, enum: ["info", "warn", "error"], default: "info" },
+    tag: { type: String, enum: LOG_TAGS, default: "step" },
     message: { type: String, required: true },
     created_at: { type: Date, default: Date.now },
   },
@@ -204,6 +207,7 @@ const runLogSchema = new Schema(
 );
 
 runLogSchema.index({ created_at: 1 }, { expireAfterSeconds: 30 * 24 * 3600 });
+runLogSchema.index({ user_id: 1, _id: 1 });
 
 const generatedResumeSchema = new Schema(
   {
@@ -282,6 +286,7 @@ module.exports = {
   PORTALS,
   JOB_SOURCES,
   RUN_KINDS,
+  LOG_TAGS,
   JOB_STATUSES,
   PortalConnection,
   LoginTicket,

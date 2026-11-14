@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../api";
-import { usePoll } from "../hooks";
+import { usePoll, useLiveFeed } from "../hooks";
 import { Alert, Button, Empty, ScorePill, Sheet, timeAgo } from "../components/ui";
 import { JobDetail } from "./JobDetail";
 
@@ -15,15 +15,21 @@ const VIEWS = [
 const STAGE_TEXT = { search: "Searching job sites", score: "Scoring matches", sync: "Updating your sheet" };
 
 function CrawlBanner({ run, onCancel }) {
+  const { lines } = useLiveFeed({ runId: run?._id, enabled: Boolean(run?._id), limit: 5 });
   if (!run) return null;
+  const latest = lines[lines.length - 1];
   return (
     <div className="banner">
       <span className="spinner" aria-hidden="true" />
-      <div className="grow">
+      <div className="grow min0">
         <p className="strong">{run.status === "queued" ? "Job search queued" : STAGE_TEXT[run.stage] || "Searching…"}</p>
-        <p className="muted small">
-          {run.counters?.found ? `${run.counters.found} postings found · ${run.counters.new || 0} new` : "This takes a few minutes. New jobs appear here automatically."}
+        <p className="muted small truncate" aria-live="polite">
+          {latest?.message ||
+            (run.counters?.found ? `${run.counters.found} postings found · ${run.counters.new || 0} new` : "This takes a few minutes. New jobs appear here automatically.")}
         </p>
+        <Link className="small" to="/activity">
+          Watch live
+        </Link>
       </div>
       <button type="button" className="link-btn" onClick={onCancel}>
         Cancel

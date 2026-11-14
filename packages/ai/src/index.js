@@ -40,9 +40,9 @@ async function listProviderModels(provider, apiKey) {
  * Unified AI client: `json(prompt)` returns a parsed object, `search(prompt)` returns
  * the text of a web-search-enabled answer. Errors are normalised (AiKeyError on auth failures).
  */
-function createAi({ provider, apiKey, model }) {
+function createAi({ provider, apiKey, model, onEvent }) {
   const api = providerApi(provider);
-  const impl = api.create({ apiKey, model: model || api.defaultModel });
+  const impl = api.create({ apiKey, model: model || api.defaultModel, onEvent });
   return {
     provider,
     model: model || api.defaultModel,
@@ -51,12 +51,13 @@ function createAi({ provider, apiKey, model }) {
   };
 }
 
-function aiForUser(user) {
+/** `onEvent({ type: "narration" | "search", text })` receives live progress from web searches. */
+function aiForUser(user, { onEvent } = {}) {
   const provider = user?.ai?.provider;
   const stored = provider && user.ai.keys?.[provider];
   if (!provider || !stored?.ciphertext) throw new AiNotConfiguredError();
   if (stored.error) throw new AiKeyError(provider, stored.error);
-  return createAi({ provider, apiKey: decryptSecret(stored.ciphertext), model: user.ai.models?.[provider] });
+  return createAi({ provider, apiKey: decryptSecret(stored.ciphertext), model: user.ai.models?.[provider], onEvent });
 }
 
 function aiReady(user) {

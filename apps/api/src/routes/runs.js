@@ -29,7 +29,7 @@ function runsRouter() {
   router.get("/:id", async (req, res) => {
     const run = await Run.findOne({ _id: req.params.id, user_id: req.user._id }, RUN_FIELDS).lean();
     if (!run) throw notFound("Run not found.");
-    const logs = await RunLog.find({ run_id: run._id }, "level message created_at").sort({ created_at: -1 }).limit(200).lean();
+    const logs = await RunLog.find({ run_id: run._id }, "kind level tag message created_at").sort({ created_at: -1 }).limit(200).lean();
     res.json({ run, logs: logs.reverse() });
   });
 

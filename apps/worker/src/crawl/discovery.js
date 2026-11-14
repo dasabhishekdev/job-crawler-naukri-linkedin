@@ -84,7 +84,7 @@ async function searchWeb({ ai, profile, settings, log, rotation }) {
   const batches = buildSearchBatches(profile, { searches: settings.searches_per_run, rotation });
   const settled = await Promise.allSettled(
     batches.map(async (roles) => {
-      const jobs = extractJsonArray(await ai.search(webSearchPrompt({ roles, profile, settings })));
+      const jobs = extractJsonArray(await ai.search(webSearchPrompt({ roles, profile, settings }), { label: `Web search: ${roles.join(", ")}` }));
       await log.info(`Web search found ${jobs.length} postings for ${roles.join(", ")}`);
       return jobs.map((job) => ({ ...job, source: "web" }));
     })
@@ -136,7 +136,7 @@ async function crawlCareerPages({ ai, profile, log, perPage = 6 }) {
   for (let i = 0; i < generic.length; i += GENERIC_PAGES_PER_SEARCH) chunks.push(generic.slice(i, i + GENERIC_PAGES_PER_SEARCH));
   const settled = await Promise.allSettled(
     chunks.map(async (chunk) => {
-      const found = extractJsonArray(await ai.search(careerPagesPrompt({ pages: chunk, profile, perPage })));
+      const found = extractJsonArray(await ai.search(careerPagesPrompt({ pages: chunk, profile, perPage }), { label: `Career pages: ${chunk.map((p) => p.name || p.url).join(", ")}` }));
       for (const page of chunk) {
         const name = String(page.name || "").toLowerCase();
         page.last_found = found.filter((j) => String(j.company || "").toLowerCase().includes(name)).length;

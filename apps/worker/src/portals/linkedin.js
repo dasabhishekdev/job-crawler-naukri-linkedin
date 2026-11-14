@@ -105,7 +105,10 @@ async function crawlLinkedIn({ context, profile, log, checkCancel, searches = 2,
     await humanDelay();
     try {
       const job = await jobDetails(page, id);
-      if (job.title && job.company) jobs.push({ ...job, source_site: label });
+      if (job.title && job.company) {
+        jobs.push({ ...job, source_site: label });
+        await log.job(`Read LinkedIn job: ${job.title} at ${job.company}`);
+      }
     } catch (err) {
       if (err.name === "SessionExpiredError") throw err;
       await log.warn(`LinkedIn job ${id}: ${err.message}`);

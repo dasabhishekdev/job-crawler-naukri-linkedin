@@ -31,7 +31,15 @@ async function listModels(apiKey) {
     .map((id) => ({ id, label: id, description: id === DEFAULT_MODEL ? "Recommended: fast and inexpensive" : "" }));
 }
 
-function createOpenAiProvider({ apiKey, model }) {
+function reportSearches(response, onEvent) {
+  if (!onEvent) return;
+  for (const item of response.output || []) {
+    const query = item.type === "web_search_call" ? item.action?.query : null;
+    if (query) onEvent({ type: "search", text: String(query).slice(0, 200) });
+  }
+}
+
+function createOpenAiProvider({ apiKey, model, onEvent }) {
   const api = client(apiKey);
   const chosen = model || DEFAULT_MODEL;
   return {
@@ -55,6 +63,7 @@ function createOpenAiProvider({ apiKey, model }) {
         if (err?.status !== 400) throw err;
         res = await run("web_search_preview");
       }
+      reportSearches(res, onEvent);
       return res.output_text || "";
     },
   };
