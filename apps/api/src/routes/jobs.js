@@ -6,7 +6,7 @@ const router = express.Router();
 
 router.get("/", async (req, res) => {
   try {
-    const { limit = 100, skip = 0, sort = "-match_score" } = req.query;
+    const { limit = 100, skip = 0, sort = "-scraped_at -ai_match_score" } = req.query;
     const filter = buildJobFilter(req.query);
 
     const [jobs, total] = await Promise.all([

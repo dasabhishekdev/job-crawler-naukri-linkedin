@@ -1,0 +1,24 @@
+{
+  "name": "jobhunter",
+  "version": "1.0.0",
+  "description": "LinkedIn feed job-post scanner with profile matching and HR email extraction",
+  "scripts": {
+    "login": "node src/auth/login.js",
+    "start": "node src/index.js",
+    "scan": "node src/index.js",
+    "scan:feed": "SCAN_MODE=feed node src/index.js",
+    "scan:search": "SCAN_MODE=search node src/index.js",
+    "crawl:jobs": "node src/crawl-jobs.js",
+    "validate:jobs": "node src/validate-jobs.js",
+    "test:jobs": "node src/test-jobs-logic.js",
+    "export": "node src/export-leads.js",
+    "export:jobs": "node src/export-jobs.js",
+    "export:jobs:excel": "node src/export-jobs-excel.js",
+    "export:jobs:excel:fine": "node src/export-jobs-excel.js --fine"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.10.0",
+    "playwright": "^1.61.1",
+    "xlsx": "^0.18.5"
+  }
+}

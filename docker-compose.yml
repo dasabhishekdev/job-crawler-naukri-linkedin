@@ -23,9 +23,11 @@ services:
       AUTH_BROWSER_PORT: 5000
       MONGODB_URI: mongodb://mongodb:27017/jobportal
       PROFILE_PATH: /app/config/profile.json
-      RESUME_DIR: /app/resume
-      JOBHUNTER_DB_PATH: /app/jobhunter/jobs.db
-      LINKEDIN_STORAGE_STATE: /app/jobhunter/storageState.json
+      RESUME_DIR: /app/resume/anika
+      RESUME_ROOT: /app/resume
+      DATA_DIR: /app/data
+      JOBHUNTER_DB_PATH: /app/linkedin-cli/jobs.db
+      LINKEDIN_STORAGE_STATE: /app/linkedin-cli/storageState.json
       NAUKRI_STORAGE_STATE: /app/data/naukri-storage-state.json
       NAUKRI_LOCATION: bengaluru
       NAUKRI_EXPERIENCE: "2"
@@ -33,6 +35,8 @@ services:
       TARGET_FRESH_JOBS: "20"
       MAX_JOB_AGE_DAYS: 14
       MAX_AUTO_APPLY_PER_RUN: "10"
+      AUTO_APPLY_ENABLED: "true"
+      AGENT_SCHEDULE_ENABLED: "true"
       TIER1_MIN_SCORE: "5"
       TIER2_MIN_SCORE: "1"
       SEARCH_DELAY_MS: 2000
@@ -41,11 +45,12 @@ services:
       PLAYWRIGHT_BROWSERS_PATH: /ms-playwright
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1"
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
-      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-5.4-mini}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o}
       LINKEDIN_LOCATION: Bangalore, Karnataka, India
     volumes:
-      - ../jobhunter:/app/jobhunter
-      - ../create-resume:/app/resume:ro
+      - ./linkedin-cli:/app/linkedin-cli
+      - ../anika-resume:/app/resume/anika:ro
+      - ../tanmoy-resume:/app/resume/tanmoy:ro
       - ./config:/app/config:ro
       - worker_data:/app/data
       - ./data/playwright-browsers:/ms-playwright
@@ -69,20 +74,28 @@ services:
     environment:
       MONGODB_URI: mongodb://mongodb:27017/jobportal
       API_PORT: 4000
-      RESUME_DIR: /app/resume
+      RESUME_DIR: /app/resume/anika
+      RESUME_ROOT: /app/resume
+      DATA_DIR: /app/data
       AUTH_BROWSER_URL: http://auth-browser:5000
       TARGET_FRESH_JOBS: "20"
-      LINKEDIN_STORAGE_STATE: /app/jobhunter/storageState.json
+      LINKEDIN_STORAGE_STATE: /app/linkedin-cli/storageState.json
       NAUKRI_STORAGE_STATE: /app/data/naukri-storage-state.json
       VNC_PUBLIC_URL: http://localhost:6080/vnc.html
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
-      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-5.4-mini}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o}
+      CURSOR_API_KEY: ${CURSOR_API_KEY:-}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      GOOGLE_REDIRECT_URI: ${GOOGLE_REDIRECT_URI:-http://localhost:4000/api/google/oauth/callback}
+      WEB_PUBLIC_URL: ${WEB_PUBLIC_URL:-http://localhost:3006}
       LINKEDIN_LOCATION: Bangalore, Karnataka, India
       NAUKRI_LOCATION: bengaluru
     volumes:
-      - ../create-resume:/app/resume:ro
+      - ../anika-resume:/app/resume/anika:ro
+      - ../tanmoy-resume:/app/resume/tanmoy:ro
       - ./config:/app/config:ro
-      - ../jobhunter:/app/jobhunter:ro
+      - ./linkedin-cli:/app/linkedin-cli:ro
       - worker_data:/app/data:ro
     depends_on:
       mongodb:
@@ -105,27 +118,36 @@ services:
       TARGET_FRESH_JOBS: "20"
       MAX_JOB_AGE_DAYS: 14
       HEADLESS: "true"
-      RESUME_DIR: /app/resume
+      RESUME_DIR: /app/resume/anika
+      RESUME_ROOT: /app/resume
+      DATA_DIR: /app/data
       PROFILE_PATH: /app/config/profile.json
-      JOBHUNTER_DB_PATH: /app/jobhunter/jobs.db
-      LINKEDIN_STORAGE_STATE: /app/jobhunter/storageState.json
+      JOBHUNTER_DB_PATH: /app/linkedin-cli/jobs.db
+      LINKEDIN_STORAGE_STATE: /app/linkedin-cli/storageState.json
       NAUKRI_STORAGE_STATE: /app/data/naukri-storage-state.json
       NAUKRI_LOCATION: bengaluru
       NAUKRI_EXPERIENCE: "2"
       NAUKRI_KEYWORDS: supply chain|operations analyst|logistics analyst|warehouse operations|quick commerce|line haul|fleet management
       MAX_AUTO_APPLY_PER_RUN: "10"
+      AUTO_APPLY_ENABLED: "true"
+      AGENT_SCHEDULE_ENABLED: "true"
       TIER1_MIN_SCORE: "5"
       TIER2_MIN_SCORE: "1"
       PLAYWRIGHT_BROWSERS_PATH: /ms-playwright
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1"
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
-      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-5.4-mini}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o}
+      CURSOR_API_KEY: ${CURSOR_API_KEY:-}
+      CURSOR_MODEL: ${CURSOR_MODEL:-composer-2.5}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      GOOGLE_REDIRECT_URI: ${GOOGLE_REDIRECT_URI:-http://localhost:4000/api/google/oauth/callback}
       LINKEDIN_LOCATION: Bangalore, Karnataka, India
     volumes:
-      - ../create-resume:/app/resume:ro
+      - ../anika-resume:/app/resume/anika:ro
+      - ../tanmoy-resume:/app/resume/tanmoy:ro
       - ./config:/app/config:ro
-      - ../jobhunter/jobs.db:/app/jobhunter/jobs.db:ro
-      - ../jobhunter:/app/jobhunter:ro
+      - ./linkedin-cli:/app/linkedin-cli:ro
       - worker_data:/app/data
       - ./data/playwright-browsers:/ms-playwright
     depends_on:
@@ -142,7 +164,7 @@ services:
         VITE_API_URL: http://localhost:4000
         VITE_VNC_URL: http://localhost:6080/vnc.html?autoconnect=true&resize=scale
     ports:
-      - "3001:3000"
+      - "3006:3000"
     depends_on:
       api:
         condition: service_healthy

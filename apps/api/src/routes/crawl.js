@@ -1,6 +1,7 @@
 const express = require("express");
 const { CrawlRun, Job, ResumeProfile, KeywordLibrary } = require("@jobportal/db");
 const { sanitizeQuery } = require("@jobportal/core");
+const { getActiveCandidate } = require("@jobportal/agent");
 
 const router = express.Router();
 const AUTH_BROWSER_URL = process.env.AUTH_BROWSER_URL || "http://localhost:5000";
@@ -171,7 +172,7 @@ router.post("/trigger", async (req, res) => {
       return res.status(400).json({ error: err.message });
     }
 
-    const running = await CrawlRun.findOne({ status: "running" });
+    const running = await CrawlRun.findOne({ status: "running", source: { $ne: "multi" } });
     if (running) {
       return res.status(409).json({
         error: `A crawl is already running (${running.source}, started ${running.started_at})`,
@@ -179,7 +180,7 @@ router.post("/trigger", async (req, res) => {
       });
     }
 
-    const queued = await CrawlRun.findOne({ status: "queued" });
+    const queued = await CrawlRun.findOne({ status: "queued", source: { $ne: "multi" } });
     if (queued) {
       return res.status(409).json({
         error: "A crawl is already queued. Wait for it to finish.",
@@ -193,6 +194,7 @@ router.post("/trigger", async (req, res) => {
       triggered_by: "manual",
       target_fresh_jobs: targetFreshJobs,
       resume_id: activeResume._id,
+      candidate_id: (await getActiveCandidate())?._id,
       fresh_per_keyword_threshold: freshPerKeyword,
       keyword_mode: keywordMode,
       selected_naukri_queries: naukriQueries,
@@ -268,7 +270,7 @@ router.post("/stop", async (req, res) => {
     if (req.body.run_id) {
       run = await CrawlRun.findById(req.body.run_id);
     } else {
-      run = await CrawlRun.findOne({ status: { $in: ["running", "queued"] } }).sort("-started_at");
+      run = await CrawlRun.findOne({ status: { $in: ["running", "queued"] }, source: { $ne: "multi" } }).sort("-started_at");
     }
 
     if (!run) {
@@ -302,7 +304,7 @@ router.post("/stop", async (req, res) => {
 
 router.get("/pending", async (_req, res) => {
   try {
-    const runs = await CrawlRun.find({ status: { $in: ["queued", "running"] } })
+    const runs = await CrawlRun.find({ status: { $in: ["queued", "running"] }, source: { $ne: "multi" } })
       .sort("started_at")
       .lean();
     res.json({ runs });

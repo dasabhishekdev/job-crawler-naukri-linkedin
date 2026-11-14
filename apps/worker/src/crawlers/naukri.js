@@ -6,6 +6,7 @@ const {
   classifyFreshness,
 } = require("@jobportal/core");
 const { Job } = require("@jobportal/db");
+const { emitAgentEvent } = require("@jobportal/agent");
 const { buildSearchUrl, parseJobId, delay, withRetry } = require("../utils");
 const { incrementCrawlProgress, shouldStopCrawl, updateCrawlProgress, pushQueryUsed } = require("../progress");
 const { createPlanner } = require("@jobportal/core");
@@ -267,7 +268,7 @@ async function validateJob(page, listing, profile, config) {
   return enriched;
 }
 
-async function saveJob(job, runId) {
+async function saveJob(job, runId, candidateId) {
   const doc = {
     source: "naukri",
     job_url: job.job_url,
@@ -290,12 +291,13 @@ async function saveJob(job, runId) {
     apply_type: job.apply_type,
     external_apply_url: job.external_apply_url,
     validated_at: job.validated_at,
+    candidate_id: candidateId,
     crawl_run_id: runId,
     scraped_at: new Date(),
   };
 
   return Job.findOneAndUpdate(
-    { source: "naukri", job_url: job.job_url },
+    { source: "naukri", job_url: job.job_url, candidate_id: candidateId },
     { $set: doc },
     { upsert: true, new: true }
   );
@@ -356,6 +358,13 @@ async function runNaukriCrawl({ browser, profile, config, runId, log }) {
         await log.info(`Naukri new query (${source || "fallback"}): "${currentQuery}"${reasoning ? ` — ${reasoning}` : ""}`, {
           keyword: currentQuery,
         });
+        await emitAgentEvent({
+          runId,
+          candidateId: config.candidateId,
+          stage: "discover",
+          tool: "crawl_naukri",
+          message: `Searching Naukri for "${currentQuery}"`,
+        });
       }
 
       let listings = [];
@@ -398,7 +407,7 @@ async function runNaukriCrawl({ browser, profile, config, runId, log }) {
 
           const fresh = isFreshOpen(validated);
 
-          await saveJob(validated, runId);
+          await saveJob(validated, runId, config.candidateId);
 
           await incrementCrawlProgress(runId, {
             discovered: 1,
@@ -430,7 +439,7 @@ async function runNaukriCrawl({ browser, profile, config, runId, log }) {
             config,
             err.message
           );
-          await saveJob(raw, runId);
+          await saveJob(raw, runId, config.candidateId);
           await incrementCrawlProgress(runId, {
             discovered: 1,
             naukri_fetched: 1,

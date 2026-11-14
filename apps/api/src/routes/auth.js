@@ -4,7 +4,7 @@ const fs = require("fs");
 const router = express.Router();
 const AUTH_BROWSER_URL = process.env.AUTH_BROWSER_URL || "http://localhost:5000";
 const LINKEDIN_SESSION =
-  process.env.LINKEDIN_STORAGE_STATE || "/app/jobhunter/storageState.json";
+  process.env.LINKEDIN_STORAGE_STATE || "/app/linkedin-cli/storageState.json";
 const NAUKRI_SESSION =
   process.env.NAUKRI_STORAGE_STATE || "/app/data/naukri-storage-state.json";
 

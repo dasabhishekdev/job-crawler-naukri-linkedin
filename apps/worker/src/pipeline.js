@@ -2,6 +2,14 @@ const { chromium } = require("playwright");
 const fs = require("fs");
 const { loadProfile, getJobKeywords, planQueriesForCrawl } = require("@jobportal/core");
 const { CrawlRun, Job, ResumeProfile } = require("@jobportal/db");
+const {
+  getActiveCandidate,
+  candidateToProfile,
+  resolveResumeDir,
+  resolveNaukriStoragePath,
+  getYieldHints,
+  hydrateOpenAiEnv,
+} = require("@jobportal/agent");
 const { createLogger } = require("./logger");
 const { runNaukriCrawl } = require("./crawlers/naukri");
 const { runNaukriApply } = require("./crawlers/naukri-apply");
@@ -28,8 +36,8 @@ function getConfig(runOverrides = {}) {
     (Number(process.env.TARGET_FRESH_JOBS) || 20);
   return {
     profilePath: process.env.PROFILE_PATH || "./config/profile.json",
-    resumeDir: process.env.RESUME_DIR || "../create-resume",
-    jobhunterDbPath: process.env.JOBHUNTER_DB_PATH || "../jobhunter/jobs.db",
+    resumeDir: process.env.RESUME_DIR || "../../../anika-resume",
+    jobhunterDbPath: process.env.JOBHUNTER_DB_PATH || "../../linkedin-cli/jobs.db",
     storageStatePath: process.env.NAUKRI_STORAGE_STATE || "./data/naukri-storage-state.json",
     location: process.env.NAUKRI_LOCATION || "bengaluru",
     experience: process.env.NAUKRI_EXPERIENCE || "2",
@@ -58,7 +66,7 @@ function getConfig(runOverrides = {}) {
 }
 
 async function assertNoConcurrentRun(excludeRunId = null) {
-  const query = { status: "running" };
+  const query = { status: "running", source: { $ne: "multi" } };
   if (excludeRunId) query._id = { $ne: excludeRunId };
   const existing = await CrawlRun.findOne(query);
   if (existing) {
@@ -72,10 +80,31 @@ async function runPipeline({
   runId = null,
   headless,
   live = false,
+  skipApply = false,
+  candidate: candidateArg = null,
 } = {}) {
+  await hydrateOpenAiEnv();
   const config = getConfig();
   if (headless !== undefined) config.headless = headless;
-  const profile = loadProfile(config.profilePath);
+
+  const candidate = candidateArg || (await getActiveCandidate());
+  let profile;
+  try {
+    profile = loadProfile(config.profilePath);
+  } catch {
+    profile = { target_roles: [], skills: [], locations: [], job_keywords: [] };
+  }
+  if (candidate) {
+    profile = { ...profile, ...candidateToProfile(candidate) };
+    config.resumeDir = resolveResumeDir(candidate);
+    config.storageStatePath = resolveNaukriStoragePath(candidate);
+    config.candidateId = candidate._id;
+    config.profile = profile;
+    config.applyPrefs = candidate.apply_prefs || {};
+    if (profile.job_keywords?.length) {
+      config.keywords = [...new Set([...config.keywords, ...profile.job_keywords])];
+    }
+  }
 
   await assertNoConcurrentRun(runId);
 
@@ -89,6 +118,7 @@ async function runPipeline({
     run.status = "running";
     run.cancel_requested = false;
     if (live) run.live = true;
+    if (candidate) run.candidate_id = candidate._id;
     config.targetFreshJobs = run.target_fresh_jobs ?? config.targetFreshJobs;
     config.freshPerKeyword = run.fresh_per_keyword_threshold ?? 8;
     await run.save();
@@ -98,6 +128,7 @@ async function runPipeline({
       status: "running",
       triggered_by: triggeredBy,
       live,
+      candidate_id: candidate?._id,
       target_fresh_jobs: config.targetFreshJobs,
       fresh_per_keyword_threshold: 8,
     });
@@ -111,8 +142,18 @@ async function runPipeline({
     const resumeDoc = await ResumeProfile.findById(run.resume_id).lean();
     resumeText = resumeDoc?.text;
   }
+  if (!resumeText && candidate?.resume_id) {
+    const resumeDoc = await ResumeProfile.findById(candidate.resume_id).lean();
+    resumeText = resumeDoc?.text;
+  }
   if (!resumeText) {
-    const active = await ResumeProfile.findOne({ is_active: true }).lean();
+    const active = await ResumeProfile.findOne({
+      $or: candidate?._id
+        ? [{ candidate_id: candidate._id }, { is_active: true }]
+        : [{ is_active: true }],
+    })
+      .sort("-uploaded_at")
+      .lean();
     resumeText = active?.text;
     if (active && !run.resume_id) {
       run.resume_id = active._id;
@@ -124,6 +165,7 @@ async function runPipeline({
   }
 
   config.resumeText = resumeText;
+  config.runId = run._id;
   if (!config.freshPerKeyword) {
     config.freshPerKeyword = run.fresh_per_keyword_threshold ?? 8;
   }
@@ -149,6 +191,9 @@ async function runPipeline({
 
   config.queryQueueByPlatform = { naukri: [], linkedin: [] };
 
+  const naukriYield = candidate ? await getYieldHints(candidate._id, "naukri") : { winners: [], duds: [] };
+  const linkedinYield = candidate ? await getYieldHints(candidate._id, "linkedin") : { winners: [], duds: [] };
+
   await log.info(
     `Crawl run started (source=${source}, trigger=${triggeredBy}, mode=${keywordMode}, target=${config.targetFreshJobs} fresh jobs, ${config.freshPerKeyword} fresh/query)`
   );
@@ -156,7 +201,7 @@ async function runPipeline({
   const wantsNaukri = source === "all" || source === "naukri";
   const wantsLinkedIn = source === "all" || source === "linkedin";
   const linkedinState =
-    process.env.LINKEDIN_STORAGE_STATE || "/app/jobhunter/storageState.json";
+    process.env.LINKEDIN_STORAGE_STATE || "/app/linkedin-cli/storageState.json";
   const useLinkedInLive =
     wantsLinkedIn && (live || !config.headless) && fs.existsSync(linkedinState);
   const linkedinLocation =
@@ -175,6 +220,7 @@ async function runPipeline({
           freshPerKeyword: config.freshPerKeyword,
           fallbackKeywords: config.fallbackKeywordsByPlatform.naukri,
           log,
+          yieldHints: naukriYield,
         });
         queries = [...planned.queries];
         sourceLabel = planned.source;
@@ -205,6 +251,7 @@ async function runPipeline({
         freshPerKeyword: config.freshPerKeyword,
         fallbackKeywords: config.fallbackKeywordsByPlatform.naukri,
         log,
+        yieldHints: naukriYield,
       });
       config.queryQueueByPlatform.naukri = [...planned.queries];
       await updateCrawlProgress(run._id, {
@@ -232,6 +279,7 @@ async function runPipeline({
           freshPerKeyword: config.freshPerKeyword,
           fallbackKeywords: config.fallbackKeywordsByPlatform.linkedin,
           log,
+          yieldHints: linkedinYield,
         });
         queries = [...planned.queries];
         sourceLabel = planned.source;
@@ -259,6 +307,7 @@ async function runPipeline({
         freshPerKeyword: config.freshPerKeyword,
         fallbackKeywords: config.fallbackKeywordsByPlatform.linkedin,
         log,
+        yieldHints: linkedinYield,
       });
       config.queryQueueByPlatform.linkedin = [...planned.queries];
       await updateCrawlProgress(run._id, {
@@ -380,7 +429,7 @@ async function runPipeline({
       totals.dead += naukriStats.dead;
 
       const stopped = await shouldStopCrawl(run._id, config);
-      if (!stopped && config.autoApplyEnabled) {
+      if (!stopped && !skipApply && config.autoApplyEnabled) {
         const applyCandidates = await Job.find({
           source: "naukri",
           crawl_run_id: run._id,
@@ -401,6 +450,7 @@ async function runPipeline({
             jobs: applyCandidates,
             config,
             log: naukriLog,
+            candidate,
           });
           totals.applied = applyStats.applied;
           totals.apply_failed = applyStats.failed;
@@ -461,11 +511,12 @@ async function runPipeline({
 }
 
 async function processPendingRuns() {
-  const running = await CrawlRun.findOne({ status: "running" });
+  const running = await CrawlRun.findOne({ status: "running", source: { $ne: "multi" } });
   if (running) return null;
 
   const pending = await CrawlRun.find({
     status: "queued",
+    source: { $ne: "multi" },
     live: { $ne: true },
     cancel_requested: { $ne: true },
   })
@@ -477,9 +528,18 @@ async function processPendingRuns() {
   const run = pending[0];
 
   try {
+    if (run.agent_loop) {
+      const { runAgentLoop } = require("./orchestrator");
+      return await runAgentLoop({
+        source: run.source,
+        triggeredBy: run.triggered_by || "agent",
+        runId: run._id,
+        live: Boolean(run.live),
+      });
+    }
     return await runPipeline({
       source: run.source,
-      triggeredBy: "manual",
+      triggeredBy: run.triggered_by || "manual",
       runId: run._id,
     });
   } catch {

@@ -1,6 +1,7 @@
 const express = require("express");
 const cors = require("cors");
 const { connectDb } = require("@jobportal/db");
+const { seedCandidates, hydrateOpenAiEnv } = require("@jobportal/agent");
 const jobsRouter = require("./routes/jobs");
 const runsRouter = require("./routes/runs");
 const logsRouter = require("./routes/logs");
@@ -10,12 +11,19 @@ const exportRouter = require("./routes/export");
 const authRouter = require("./routes/auth");
 const resumeRouter = require("./routes/resume");
 const keywordsRouter = require("./routes/keywords");
+const candidatesRouter = require("./routes/candidates");
+const agentRouter = require("./routes/agent");
+const settingsRouter = require("./routes/settings");
+const multiRouter = require("./routes/multi");
+const googleRouter = require("./routes/google");
 
 const PORT = Number(process.env.API_PORT) || 4000;
 const MONGODB_URI = process.env.MONGODB_URI || "mongodb://localhost:27017/jobportal";
 
 async function main() {
   await connectDb(MONGODB_URI);
+  await seedCandidates();
+  await hydrateOpenAiEnv();
 
   const app = express();
   app.use(cors());
@@ -34,6 +42,11 @@ async function main() {
   app.use("/api/auth", authRouter);
   app.use("/api/resume", resumeRouter);
   app.use("/api/keywords", keywordsRouter);
+  app.use("/api/candidates", candidatesRouter);
+  app.use("/api/agent", agentRouter);
+  app.use("/api/settings", settingsRouter);
+  app.use("/api/multi", multiRouter);
+  app.use("/api/google", googleRouter);
 
   app.listen(PORT, () => {
     console.log(`API listening on http://localhost:${PORT}`);

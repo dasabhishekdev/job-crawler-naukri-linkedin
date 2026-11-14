@@ -1,0 +1,13 @@
+node_modules/
+storageState.json
+leads.db
+leads.db-wal
+leads.db-shm
+leads-export.json
+jobs.db
+jobs.db-wal
+jobs.db-shm
+jobs-export.json
+jobs-urls.txt
+jobs-report.txt
+*.log

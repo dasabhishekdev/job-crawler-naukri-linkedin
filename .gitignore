@@ -4,3 +4,11 @@ dist/
 *.log
 naukri-storage-state.json
 data/
+linkedin-cli/node_modules/
+linkedin-cli/storageState.json
+linkedin-cli/*.db
+linkedin-cli/jobs-*.json
+linkedin-cli/jobs-*.xlsx
+linkedin-cli/jobs-*.txt
+
+.DS_Store

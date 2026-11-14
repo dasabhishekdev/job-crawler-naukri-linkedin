@@ -368,10 +368,11 @@ async function saveJob(job, runId) {
     crawl_run_id: runId,
     scraped_at: new Date(),
     application_status: "not_eligible",
+    candidate_id: job.candidate_id,
   };
 
   return Job.findOneAndUpdate(
-    { source: "linkedin", job_url: job.job_url },
+    { source: "linkedin", job_url: job.job_url, candidate_id: job.candidate_id },
     { $set: doc },
     { upsert: true, new: true }
   );
@@ -401,7 +402,8 @@ async function persistListing(page, listing, profile, config, runId, searchUrl, 
   if (record.url_status === "valid_open") stats.valid_open += 1;
 
   const fresh = isFreshOpen(record);
-  await saveJob(record, runId);
+    record.candidate_id = config.candidateId;
+    await saveJob(record, runId);
   stats.synced += 1;
 
   await incrementCrawlProgress(runId, {
@@ -419,7 +421,7 @@ async function persistListing(page, listing, profile, config, runId, searchUrl, 
 
 async function runLinkedInLiveCrawl({ browser, profile, config, runId, log }) {
   const storagePath =
-    process.env.LINKEDIN_STORAGE_STATE || "/app/jobhunter/storageState.json";
+    process.env.LINKEDIN_STORAGE_STATE || "/app/linkedin-cli/storageState.json";
 
   if (!fs.existsSync(storagePath)) {
     await log.warn(`LinkedIn session not found at ${storagePath} — skipping live crawl`);

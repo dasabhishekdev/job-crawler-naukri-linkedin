@@ -1,6 +1,7 @@
 const express = require("express");
 const { ResumeProfile, KeywordLibrary } = require("@jobportal/db");
 const { generateQueryBatch, computeQueryCount, sanitizeQuery } = require("@jobportal/core");
+const { hydrateOpenAiEnv } = require("@jobportal/agent");
 
 const router = express.Router();
 const DEFAULT_TARGET = Number(process.env.TARGET_FRESH_JOBS) || 20;
@@ -56,6 +57,88 @@ async function persistBatch(queries, platform, source) {
   return saved;
 }
 
+function requestedPlatforms(body) {
+  const raw = String(body?.platform || "").toLowerCase();
+  if (raw === "naukri" || raw === "linkedin") return [raw];
+  return ["naukri", "linkedin"];
+}
+
+function emptyBatch() {
+  return { queries: [], source: "fallback", reasoning: "", saved: 0 };
+}
+
+async function planAndPersist({ resume, queryCount, platforms, save }) {
+  const naukriLocation = process.env.NAUKRI_LOCATION || "bengaluru";
+  const linkedinLocation = process.env.LINKEDIN_LOCATION || "Bangalore, Karnataka, India";
+  const naukriFallback = splitKeywords(process.env.NAUKRI_KEYWORDS, [
+    "operations analyst",
+    "purchase executive",
+  ]);
+  const linkedinFallback = splitKeywords(process.env.LINKEDIN_KEYWORDS, [
+    "operations analyst logistics",
+    "supply chain analyst bangalore",
+  ]);
+
+  const tasks = [];
+  if (platforms.includes("naukri")) {
+    tasks.push(
+      generateQueryBatch({
+        resumeText: resume.text,
+        platform: "naukri",
+        count: queryCount,
+        location: naukriLocation,
+        fallbackKeywords: naukriFallback,
+      }).then((batch) => ["naukri", batch])
+    );
+  }
+  if (platforms.includes("linkedin")) {
+    tasks.push(
+      generateQueryBatch({
+        resumeText: resume.text,
+        platform: "linkedin",
+        count: queryCount,
+        location: linkedinLocation,
+        fallbackKeywords: linkedinFallback,
+      }).then((batch) => ["linkedin", batch])
+    );
+  }
+
+  const planned = Object.fromEntries(await Promise.all(tasks));
+  const naukri = planned.naukri || emptyBatch();
+  const linkedin = planned.linkedin || emptyBatch();
+
+  let naukriSaved = [];
+  let linkedinSaved = [];
+  if (save) {
+    const persistTasks = [];
+    if (planned.naukri) {
+      persistTasks.push(
+        persistBatch(naukri.queries, "naukri", naukri.source === "ai" ? "ai" : "manual").then(
+          (docs) => {
+            naukriSaved = docs;
+          }
+        )
+      );
+    }
+    if (planned.linkedin) {
+      persistTasks.push(
+        persistBatch(linkedin.queries, "linkedin", linkedin.source === "ai" ? "ai" : "manual").then(
+          (docs) => {
+            linkedinSaved = docs;
+          }
+        )
+      );
+    }
+    await Promise.all(persistTasks);
+  }
+
+  return {
+    naukri: { ...naukri, saved: naukriSaved.length },
+    linkedin: { ...linkedin, saved: linkedinSaved.length },
+    keywords: [...naukriSaved, ...linkedinSaved],
+  };
+}
+
 router.get("/", async (req, res) => {
   try {
     const filter = {};
@@ -97,6 +180,7 @@ router.post("/", async (req, res) => {
 
 router.post("/generate", async (req, res) => {
   try {
+    await hydrateOpenAiEnv();
     const resume = await ResumeProfile.findOne({ is_active: true }).lean();
     if (!resume) return res.status(400).json({ error: "Upload a resume first" });
 
@@ -113,48 +197,19 @@ router.post("/generate", async (req, res) => {
       Number(req.body.query_count) || computeQueryCount(targetFreshJobs, freshPerKeyword)
     );
 
-    const naukriLocation = process.env.NAUKRI_LOCATION || "bengaluru";
-    const linkedinLocation =
-      process.env.LINKEDIN_LOCATION || "Bangalore, Karnataka, India";
-
-    const naukriFallback = splitKeywords(process.env.NAUKRI_KEYWORDS, [
-      "operations analyst",
-      "purchase executive",
-    ]);
-    const linkedinFallback = splitKeywords(process.env.LINKEDIN_KEYWORDS, [
-      "operations analyst logistics",
-      "supply chain analyst bangalore",
-    ]);
-
-    const [naukri, linkedin] = await Promise.all([
-      generateQueryBatch({
-        resumeText: resume.text,
-        platform: "naukri",
-        count: queryCount,
-        location: naukriLocation,
-        fallbackKeywords: naukriFallback,
-      }),
-      generateQueryBatch({
-        resumeText: resume.text,
-        platform: "linkedin",
-        count: queryCount,
-        location: linkedinLocation,
-        fallbackKeywords: linkedinFallback,
-      }),
-    ]);
-
-    const [naukriSaved, linkedinSaved] = await Promise.all([
-      persistBatch(naukri.queries, "naukri", naukri.source === "ai" ? "ai" : "manual"),
-      persistBatch(linkedin.queries, "linkedin", linkedin.source === "ai" ? "ai" : "manual"),
-    ]);
+    const planned = await planAndPersist({
+      resume,
+      queryCount,
+      platforms: requestedPlatforms(req.body),
+      save: true,
+    });
 
     res.json({
       target_fresh_jobs: targetFreshJobs,
       fresh_per_keyword_threshold: freshPerKeyword,
       query_count: queryCount,
-      naukri: { ...naukri, saved: naukriSaved.length },
-      linkedin: { ...linkedin, saved: linkedinSaved.length },
-      keywords: [...naukriSaved, ...linkedinSaved],
+      platforms: requestedPlatforms(req.body),
+      ...planned,
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -163,6 +218,7 @@ router.post("/generate", async (req, res) => {
 
 router.post("/preview", async (req, res) => {
   try {
+    await hydrateOpenAiEnv();
     const resume = await ResumeProfile.findOne({ is_active: true }).lean();
     if (!resume) return res.status(400).json({ error: "Upload a resume first" });
 
@@ -177,50 +233,21 @@ router.post("/preview", async (req, res) => {
     const queryCount = computeQueryCount(targetFreshJobs, freshPerKeyword);
     const save = req.body.save === true || req.query.save === "true";
 
-    const naukriLocation = process.env.NAUKRI_LOCATION || "bengaluru";
-    const linkedinLocation =
-      process.env.LINKEDIN_LOCATION || "Bangalore, Karnataka, India";
-
-    const naukriFallback = splitKeywords(process.env.NAUKRI_KEYWORDS, [
-      "operations analyst",
-      "purchase executive",
-    ]);
-    const linkedinFallback = splitKeywords(process.env.LINKEDIN_KEYWORDS, [
-      "operations analyst logistics",
-      "supply chain analyst bangalore",
-    ]);
-
-    const [naukri, linkedin] = await Promise.all([
-      generateQueryBatch({
-        resumeText: resume.text,
-        platform: "naukri",
-        count: queryCount,
-        location: naukriLocation,
-        fallbackKeywords: naukriFallback,
-      }),
-      generateQueryBatch({
-        resumeText: resume.text,
-        platform: "linkedin",
-        count: queryCount,
-        location: linkedinLocation,
-        fallbackKeywords: linkedinFallback,
-      }),
-    ]);
-
-    if (save) {
-      await Promise.all([
-        persistBatch(naukri.queries, "naukri", naukri.source === "ai" ? "ai" : "manual"),
-        persistBatch(linkedin.queries, "linkedin", linkedin.source === "ai" ? "ai" : "manual"),
-      ]);
-    }
+    const planned = await planAndPersist({
+      resume,
+      queryCount,
+      platforms: requestedPlatforms(req.body),
+      save,
+    });
 
     res.json({
       target_fresh_jobs: targetFreshJobs,
       fresh_per_keyword_threshold: freshPerKeyword,
       query_count: queryCount,
       saved: save,
-      naukri,
-      linkedin,
+      platforms: requestedPlatforms(req.body),
+      naukri: planned.naukri,
+      linkedin: planned.linkedin,
     });
   } catch (err) {
     res.status(500).json({ error: err.message });

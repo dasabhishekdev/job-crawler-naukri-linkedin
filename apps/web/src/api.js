@@ -79,16 +79,17 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ text, platform }),
     }),
-  generateKeywords: (targetFreshJobs = 20, freshPerKeyword = 8) =>
+  generateKeywords: (targetFreshJobs = 20, freshPerKeyword = 8, platform) =>
     request("/api/keywords/generate", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         target_fresh_jobs: targetFreshJobs,
         fresh_per_keyword_threshold: freshPerKeyword,
+        ...(platform ? { platform } : {}),
       }),
     }),
-  previewKeywords: (targetFreshJobs = 20, freshPerKeyword = 8, save = false) =>
+  previewKeywords: (targetFreshJobs = 20, freshPerKeyword = 8, save = false, platform) =>
     request("/api/keywords/preview", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -96,6 +97,7 @@ export const api = {
         target_fresh_jobs: targetFreshJobs,
         fresh_per_keyword_threshold: freshPerKeyword,
         save,
+        ...(platform ? { platform } : {}),
       }),
     }),
   deleteKeyword: (id, hard = false) =>
@@ -121,4 +123,59 @@ export const api = {
     request(`/api/auth/open/${platform}`, { method: "POST" }),
   saveAuthSession: (platform) =>
     request(`/api/auth/save/${platform}`, { method: "POST" }),
+  listCandidates: () => request("/api/candidates"),
+  activateCandidate: (id) =>
+    request(`/api/candidates/${id}/activate`, { method: "POST" }),
+  getAgentStatus: () => request("/api/agent/status"),
+  runAgent: ({ live = true, source = "naukri" } = {}) =>
+    request("/api/agent/run", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ live, source }),
+    }),
+  streamAgentEvents: (onEvent) => {
+    const es = new EventSource(`${API_URL}/api/agent/events/stream`);
+    es.addEventListener("event", (e) => onEvent(JSON.parse(e.data)));
+    es.addEventListener("error", () => es.close());
+    return es;
+  },
+  getOpenAiSettings: () => request("/api/settings/openai"),
+  checkOpenAiKey: (payload = {}) =>
+    request("/api/settings/openai/check", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    }),
+  saveOpenAiSettings: (payload) =>
+    request("/api/settings/openai", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    }),
+  getMultiStatus: () => request("/api/multi/status"),
+  saveMultiSettings: (patch) =>
+    request("/api/multi/settings", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(patch),
+    }),
+  runMulti: () => request("/api/multi/run", { method: "POST" }),
+  stopMulti: () => request("/api/multi/stop", { method: "POST" }),
+  saveCareerPages: (pages) =>
+    request("/api/multi/career-pages", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ pages }),
+    }),
+  getMultiJobs: (params = {}) => {
+    const qs = new URLSearchParams(
+      Object.entries(params).filter(([, v]) => v !== undefined && v !== null && v !== "")
+    ).toString();
+    return request(`/api/multi/jobs${qs ? `?${qs}` : ""}`);
+  },
+  tailorJob: (id) => request(`/api/multi/jobs/${id}/tailor`, { method: "POST" }),
+  getGoogleStatus: () => request("/api/google/status"),
+  getGoogleAuthUrl: () => request("/api/google/auth-url"),
+  disconnectGoogle: () => request("/api/google/disconnect", { method: "POST" }),
+  syncGoogleSheet: () => request("/api/google/sync", { method: "POST" }),
 };

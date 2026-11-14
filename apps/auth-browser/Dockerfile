@@ -16,6 +16,7 @@ RUN apt-get update && apt-get install -y -qq tzdata build-essential python3 \
 COPY package.json ./
 COPY packages/core/package.json ./packages/core/
 COPY packages/db/package.json ./packages/db/
+COPY packages/agent/package.json ./packages/agent/
 COPY apps/auth-browser/package.json ./apps/auth-browser/
 
 RUN npm install --workspace=@jobportal/auth-browser --include-workspace-root

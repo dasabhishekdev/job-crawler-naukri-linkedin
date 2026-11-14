@@ -8,6 +8,8 @@ RUN apt-get update && apt-get install -y curl \
 COPY package.json ./
 COPY packages/core/package.json ./packages/core/
 COPY packages/db/package.json ./packages/db/
+COPY packages/agent/package.json ./packages/agent/
+COPY packages/google/package.json ./packages/google/
 COPY apps/api/package.json ./apps/api/
 
 RUN npm install --workspace=@jobportal/api --include-workspace-root

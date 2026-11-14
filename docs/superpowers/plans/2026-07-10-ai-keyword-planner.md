@@ -87,7 +87,7 @@ module.exports = { Job, CrawlRun, CrawlLog, ResumeProfile, connectDb };
 - [ ] **Step 1: Install deps at monorepo root**
 
 ```bash
-cd jobportal && npm install pdf-parse mammoth --workspace=@jobportal/core
+cd job-crawler-naukri-linkedin && npm install pdf-parse mammoth --workspace=@jobportal/core
 ```
 
 - [ ] **Step 2: Implement parseResume**

@@ -3,22 +3,38 @@ const cors = require("cors");
 const fs = require("fs");
 const path = require("path");
 const { chromium } = require("playwright");
+const { connectDb } = require("@jobportal/db");
+const { seedCandidates, getActiveCandidate, resolveNaukriStoragePath, hydrateOpenAiEnv } = require("@jobportal/agent");
 const { runLiveCrawl } = require("./live-crawl");
 const { getRunProgress, requestStop } = require("../../worker/src/progress");
 const { closeActiveBrowser } = require("../../worker/src/crawl-control");
 
 const PORT = Number(process.env.AUTH_BROWSER_PORT) || 5000;
 
-const SESSIONS = {
-  linkedin: {
-    url: "https://www.linkedin.com/login",
-    path: process.env.LINKEDIN_STORAGE_STATE || "/app/jobhunter/storageState.json",
-  },
-  naukri: {
-    url: "https://www.naukri.com/nlogin/login",
-    path: process.env.NAUKRI_STORAGE_STATE || "/app/data/naukri-storage-state.json",
-  },
-};
+async function naukriSessionPath() {
+  try {
+    const candidate = await getActiveCandidate();
+    return resolveNaukriStoragePath(candidate);
+  } catch {
+    return process.env.NAUKRI_STORAGE_STATE || "/app/data/naukri-storage-state.json";
+  }
+}
+
+async function sessionConfig(platform) {
+  if (platform === "linkedin") {
+    return {
+      url: "https://www.linkedin.com/login",
+      path: process.env.LINKEDIN_STORAGE_STATE || "/app/linkedin-cli/storageState.json",
+    };
+  }
+  if (platform === "naukri") {
+    return {
+      url: "https://www.naukri.com/nlogin/login",
+      path: await naukriSessionPath(),
+    };
+  }
+  return null;
+}
 
 let browser = null;
 let context = null;
@@ -57,7 +73,7 @@ async function ensureBrowser() {
 }
 
 async function openLogin(platform) {
-  const cfg = SESSIONS[platform];
+  const cfg = await sessionConfig(platform);
   if (!cfg) throw new Error(`Unknown platform: ${platform}`);
 
   const b = await ensureBrowser();
@@ -85,7 +101,8 @@ async function openLogin(platform) {
 }
 
 async function saveSession(platform) {
-  const cfg = SESSIONS[platform];
+  const cfg = await sessionConfig(platform);
+  if (!cfg) throw new Error(`Unknown platform: ${platform}`);
   if (!context) {
     throw new Error("No browser session open. Click Open Login first.");
   }
@@ -105,21 +122,19 @@ async function saveSession(platform) {
   };
 }
 
-function getStatus() {
+async function getStatus() {
+  const naukriPath = await naukriSessionPath();
+  const linkedinPath = process.env.LINKEDIN_STORAGE_STATE || "/app/linkedin-cli/storageState.json";
   return {
     linkedin: {
-      logged_in: fs.existsSync(SESSIONS.linkedin.path),
-      path: SESSIONS.linkedin.path,
-      updated_at: fs.existsSync(SESSIONS.linkedin.path)
-        ? fs.statSync(SESSIONS.linkedin.path).mtime
-        : null,
+      logged_in: fs.existsSync(linkedinPath),
+      path: linkedinPath,
+      updated_at: fs.existsSync(linkedinPath) ? fs.statSync(linkedinPath).mtime : null,
     },
     naukri: {
-      logged_in: fs.existsSync(SESSIONS.naukri.path),
-      path: SESSIONS.naukri.path,
-      updated_at: fs.existsSync(SESSIONS.naukri.path)
-        ? fs.statSync(SESSIONS.naukri.path).mtime
-        : null,
+      logged_in: fs.existsSync(naukriPath),
+      path: naukriPath,
+      updated_at: fs.existsSync(naukriPath) ? fs.statSync(naukriPath).mtime : null,
     },
     current_platform: currentPlatform,
     browser_open: Boolean(context),
@@ -164,8 +179,12 @@ app.get("/health", (_req, res) => {
   res.json({ status: "ok", service: "auth-browser" });
 });
 
-app.get("/status", (_req, res) => {
-  res.json(getStatus());
+app.get("/status", async (_req, res) => {
+  try {
+    res.json(await getStatus());
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 app.post("/open/:platform", async (req, res) => {
@@ -249,10 +268,21 @@ app.get("/crawl/status", async (_req, res) => {
   res.json(payload);
 });
 
-app.listen(PORT, () => {
-  console.log(`Auth browser API on :${PORT}`);
-  console.log(`DISPLAY=${process.env.DISPLAY || ":99"}`);
-});
+const MONGODB_URI = process.env.MONGODB_URI || "mongodb://localhost:27017/jobportal";
+
+connectDb(MONGODB_URI)
+  .then(() => seedCandidates())
+  .then(() => hydrateOpenAiEnv())
+  .then(() => {
+    app.listen(PORT, () => {
+      console.log(`Auth browser API on :${PORT}`);
+      console.log(`DISPLAY=${process.env.DISPLAY || ":99"}`);
+    });
+  })
+  .catch((err) => {
+    console.error("Auth browser failed to start:", err);
+    process.exit(1);
+  });
 
 process.on("SIGTERM", async () => {
   await releaseLoginBrowser();

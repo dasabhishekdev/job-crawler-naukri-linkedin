@@ -60,6 +60,7 @@ async function syncLinkedInJobs({ dbPath, profile, config, runId, log }) {
       scraped_at: row.scraped_at ? new Date(row.scraped_at) : new Date(),
       crawl_run_id: runId,
       application_status: "not_eligible",
+      candidate_id: config.candidateId,
     };
 
     if (!row.match_score && row.description) {
@@ -74,7 +75,7 @@ async function syncLinkedInJobs({ dbPath, profile, config, runId, log }) {
     }
 
     await Job.findOneAndUpdate(
-      { source: "linkedin", job_url: row.job_url },
+      { source: "linkedin", job_url: row.job_url, candidate_id: config.candidateId },
       { $set: doc },
       { upsert: true }
     );
@@ -89,7 +90,7 @@ async function syncLinkedInJobs({ dbPath, profile, config, runId, log }) {
     }
   }
 
-  await log.info(`Synced ${synced} LinkedIn jobs from jobhunter DB`);
+  await log.info(`Synced ${synced} LinkedIn jobs from linkedin-cli DB`);
   return { synced };
 }
 

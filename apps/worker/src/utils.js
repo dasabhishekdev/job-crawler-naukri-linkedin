@@ -1,6 +1,8 @@
 const fs = require("fs");
 const path = require("path");
 
+const { pickLatestResumeUploadPath } = require("@jobportal/agent");
+
 function slugify(text) {
   return (text || "")
     .toLowerCase()
@@ -21,10 +23,7 @@ function parseJobId(url) {
 }
 
 function findResumePdf(resumeDir) {
-  if (!fs.existsSync(resumeDir)) return null;
-  const files = fs.readdirSync(resumeDir);
-  const pdf = files.find((f) => f.toLowerCase().endsWith(".pdf"));
-  return pdf ? path.join(resumeDir, pdf) : null;
+  return pickLatestResumeUploadPath(resumeDir);
 }
 
 function readResumeContext(resumeDir) {

@@ -2,7 +2,7 @@
 
 **Date:** 2026-07-10  
 **Status:** Approved (Approach 2)  
-**Project:** Job Portal (`jobportal/`)
+**Project:** job-crawler-naukri-linkedin (`job-crawler-naukri-linkedin/`)
 
 ## Problem
 

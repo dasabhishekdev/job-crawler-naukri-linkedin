@@ -1,6 +1,6 @@
 const OpenAI = require("openai");
 
-const MODEL = process.env.OPENAI_MODEL || "gpt-5.4-mini";
+const MODEL = process.env.OPENAI_MODEL || "gpt-4o";
 
 const PLATFORM_DEFAULTS = {
   naukri: ["operations analyst", "purchase executive", "logistics analyst", "warehouse executive"],
@@ -93,8 +93,10 @@ function platformRules(platform, count) {
   ].join("\n");
 }
 
-function buildBatchPrompt({ resumeText, platform, count, location, usedQueries = [] }) {
+function buildBatchPrompt({ resumeText, platform, count, location, usedQueries = [], yieldHints = {} }) {
   const used = usedQueries.length ? usedQueries.join(", ") : "none";
+  const winners = yieldHints.winners?.length ? yieldHints.winners.join(", ") : "none";
+  const duds = yieldHints.duds?.length ? yieldHints.duds.join(", ") : "none";
 
   return `You generate job search queries for ${platform} in India.
 
@@ -103,6 +105,8 @@ ${(resumeText || "").slice(0, 8000)}
 
 Location: ${location || "Bangalore, India"}
 Already used (do NOT repeat or near-duplicate): ${used}
+High-yield queries from past runs (prefer similar adjacent titles): ${winners}
+Low-yield queries to avoid: ${duds}
 
 ${platformRules(platform, count)}
 
@@ -381,6 +385,7 @@ async function planQueriesForCrawl({
   freshPerKeyword,
   fallbackKeywords,
   log,
+  yieldHints,
 }) {
   const count = computeQueryCount(targetFreshJobs, freshPerKeyword);
   const batch = await generateQueryBatch({
@@ -390,6 +395,7 @@ async function planQueriesForCrawl({
     location,
     fallbackKeywords,
     log,
+    yieldHints,
   });
 
   if (log) {

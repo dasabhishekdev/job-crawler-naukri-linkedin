@@ -13,9 +13,12 @@ const {
   sanitizeQuery,
   PLATFORM_DEFAULTS,
   MODEL,
+  buildChatCompletionParams,
 } = require("./keyword-planner");
+const { loadBlocklist } = require("./blocklist");
 
 module.exports = {
+  loadBlocklist,
   loadProfile,
   getJobKeywords,
   analyzeJob,
@@ -36,4 +39,5 @@ module.exports = {
   sanitizeQuery,
   PLATFORM_DEFAULTS,
   MODEL,
+  buildChatCompletionParams,
 };
