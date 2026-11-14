@@ -1,4 +1,4 @@
-const fs = require("fs");
+const { Readable } = require("stream");
 const { drive } = require("@googleapis/drive");
 const { sheets } = require("@googleapis/sheets");
 const { SHEET_HEADERS } = require("./sheet-rows");
@@ -8,13 +8,8 @@ const SHEET_MIME = "application/vnd.google-apps.spreadsheet";
 const ROOT_FOLDER_NAME = "Job Crawler";
 const SHEET_TAB = "Jobs";
 
-function driveApi(auth) {
-  return drive({ version: "v3", auth });
-}
-
-function sheetsApi(auth) {
-  return sheets({ version: "v4", auth });
-}
+const driveApi = (auth) => drive({ version: "v3", auth });
+const sheetsApi = (auth) => sheets({ version: "v4", auth });
 
 function quote(value) {
   return String(value).replace(/\\/g, "\\\\").replace(/'/g, "\\'");
@@ -32,12 +27,7 @@ async function fileAlive(d, fileId) {
 }
 
 async function findChild(d, { name, parentId, mimeType }) {
-  const q = [
-    `name='${quote(name)}'`,
-    "trashed=false",
-    `'${parentId || "root"}' in parents`,
-    mimeType ? `mimeType='${mimeType}'` : null,
-  ]
+  const q = [`name='${quote(name)}'`, "trashed=false", `'${parentId || "root"}' in parents`, mimeType && `mimeType='${mimeType}'`]
     .filter(Boolean)
     .join(" and ");
   const { data } = await d.files.list({ q, fields: "files(id,name,webViewLink)", pageSize: 1, spaces: "drive" });
@@ -98,36 +88,28 @@ async function createJobsSheet(auth, d, { name, parentId }) {
   return file;
 }
 
-/** Creates (or re-validates) Job Crawler/<Name>/{sheet, Tailored Resumes} and stores the ids on the candidate. */
-async function ensureCandidateDrive(auth, candidate) {
+/** Creates or re-validates `Job Crawler/<name>/{sheet, Tailored Resumes}`; returns ids for user.drive. */
+async function ensureUserDrive(auth, { name, refs = {} }) {
   const d = driveApi(auth);
-  const refs = { ...(candidate.drive?.toObject?.() || candidate.drive || {}) };
-
-  if (!(await fileAlive(d, refs.root_folder_id))) {
-    refs.root_folder_id = (await ensureFolder(d, ROOT_FOLDER_NAME, null)).id;
+  const next = { ...refs };
+  if (!(await fileAlive(d, next.root_folder_id))) next.root_folder_id = (await ensureFolder(d, ROOT_FOLDER_NAME, null)).id;
+  if (!(await fileAlive(d, next.user_folder_id))) next.user_folder_id = (await ensureFolder(d, name, next.root_folder_id)).id;
+  if (!(await fileAlive(d, next.resumes_folder_id))) {
+    next.resumes_folder_id = (await ensureFolder(d, "Tailored Resumes", next.user_folder_id)).id;
   }
-  if (!(await fileAlive(d, refs.candidate_folder_id))) {
-    refs.candidate_folder_id = (await ensureFolder(d, candidate.name, refs.root_folder_id)).id;
+  if (!(await fileAlive(d, next.sheet_id))) {
+    const sheetName = `${name} – Job Matches`;
+    const existing = await findChild(d, { name: sheetName, parentId: next.user_folder_id, mimeType: SHEET_MIME });
+    const sheet = existing || (await createJobsSheet(auth, d, { name: sheetName, parentId: next.user_folder_id }));
+    next.sheet_id = sheet.id;
+    next.sheet_url = sheet.webViewLink || `https://docs.google.com/spreadsheets/d/${sheet.id}/edit`;
   }
-  if (!(await fileAlive(d, refs.tailored_folder_id))) {
-    refs.tailored_folder_id = (await ensureFolder(d, "Tailored Resumes", refs.candidate_folder_id)).id;
-  }
-  if (!(await fileAlive(d, refs.sheet_id))) {
-    const sheetName = `${candidate.name} – Job Matches`;
-    const existing = await findChild(d, { name: sheetName, parentId: refs.candidate_folder_id, mimeType: SHEET_MIME });
-    const sheet = existing || (await createJobsSheet(auth, d, { name: sheetName, parentId: refs.candidate_folder_id }));
-    refs.sheet_id = sheet.id;
-    refs.sheet_url = sheet.webViewLink || `https://docs.google.com/spreadsheets/d/${sheet.id}/edit`;
-  }
-
-  candidate.drive = refs;
-  await candidate.save();
-  return refs;
+  return next;
 }
 
-async function uploadPdf(auth, { folderId, name, filePath }) {
+async function uploadPdf(auth, { folderId, name, buffer }) {
   const d = driveApi(auth);
-  const media = { mimeType: "application/pdf", body: fs.createReadStream(filePath) };
+  const media = { mimeType: "application/pdf", body: Readable.from(buffer) };
   const existing = await findChild(d, { name, parentId: folderId });
   if (existing) {
     const { data } = await d.files.update({ fileId: existing.id, media, fields: "id,webViewLink" });
@@ -152,4 +134,4 @@ async function writeSheetValues(auth, spreadsheetId, rows) {
   });
 }
 
-module.exports = { ensureCandidateDrive, ensureFolder, uploadPdf, writeSheetValues, driveApi };
+module.exports = { ensureUserDrive, ensureFolder, uploadPdf, writeSheetValues, driveApi };

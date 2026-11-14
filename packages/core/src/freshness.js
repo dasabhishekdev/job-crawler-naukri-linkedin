@@ -8,13 +8,13 @@ function parsePostedAgeDays(postedText) {
     return 0;
   }
 
-  const dayMatch = text.match(/(\d+)\s*day/);
+  const dayMatch = text.match(/(\d+)\+?\s*day/);
   if (dayMatch) return Number(dayMatch[1]);
 
-  const weekMatch = text.match(/(\d+)\s*week/);
+  const weekMatch = text.match(/(\d+)\+?\s*week/);
   if (weekMatch) return Number(weekMatch[1]) * 7;
 
-  const monthMatch = text.match(/(\d+)\s*month/);
+  const monthMatch = text.match(/(\d+)\+?\s*month/);
   if (monthMatch) return Number(monthMatch[1]) * 30;
 
   if (text.includes("month")) return 30;

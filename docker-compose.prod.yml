@@ -1,0 +1,92 @@
+# Production stack for the VPS. Images are built and pushed by GitHub Actions (.github/workflows/deploy.yml).
+# Usage on the server (in the directory holding this file and .env):
+#   docker compose -f docker-compose.prod.yml pull && docker compose -f docker-compose.prod.yml up -d
+name: job-crawler
+
+x-app-env: &app-env
+  NODE_ENV: production
+  MONGODB_URI: mongodb://${MONGO_ROOT_USER:?}:${MONGO_ROOT_PASSWORD:?}@mongodb:27017/jobportal?authSource=admin
+  PUBLIC_URL: ${PUBLIC_URL:?Set PUBLIC_URL, e.g. https://jobs.example.com}
+  SESSION_SECRET: ${SESSION_SECRET:?}
+  APP_ENCRYPTION_KEY: ${APP_ENCRYPTION_KEY:?}
+  ADMIN_EMAILS: ${ADMIN_EMAILS:-}
+  GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+  GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+
+x-logging: &logging
+  driver: json-file
+  options: { max-size: "10m", max-file: "5" }
+
+services:
+  mongodb:
+    image: mongo:7
+    restart: unless-stopped
+    logging: *logging
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USER:?}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD:?}
+    volumes:
+      - mongo_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+
+  api:
+    image: ${IMAGE_PREFIX:?}-api:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    logging: *logging
+    environment: *app-env
+    depends_on:
+      mongodb: { condition: service_healthy }
+
+  worker:
+    image: ${IMAGE_PREFIX:?}-worker:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    logging: *logging
+    init: true
+    shm_size: "512mb"
+    environment:
+      <<: *app-env
+      MAX_CONCURRENT_RUNS: ${MAX_CONCURRENT_RUNS:-3}
+    volumes:
+      - worker_data:/app/data
+    depends_on:
+      mongodb: { condition: service_healthy }
+
+  web:
+    image: ${IMAGE_PREFIX:?}-web:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    logging: *logging
+    environment:
+      SITE_ADDRESS: ${SITE_ADDRESS:?Set SITE_ADDRESS to your domain, e.g. jobs.example.com}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      api: { condition: service_healthy }
+
+  backup:
+    image: mongo:7
+    restart: unless-stopped
+    logging: *logging
+    entrypoint: ["/bin/bash", "/backup.sh"]
+    environment:
+      MONGO_URI: mongodb://${MONGO_ROOT_USER:?}:${MONGO_ROOT_PASSWORD:?}@mongodb:27017/?authSource=admin
+      BACKUP_KEEP_DAYS: ${BACKUP_KEEP_DAYS:-14}
+    volumes:
+      - ./backup.sh:/backup.sh:ro
+      - ./backups:/backups
+    depends_on:
+      mongodb: { condition: service_healthy }
+
+volumes:
+  mongo_data:
+  worker_data:
+  caddy_data:
+  caddy_config:

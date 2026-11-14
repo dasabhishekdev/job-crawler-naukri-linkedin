@@ -1,16 +1,22 @@
 {
-  "name": "jobportal",
-  "version": "1.0.0",
+  "name": "job-crawler",
+  "version": "2.0.0",
   "private": true,
+  "engines": {
+    "node": ">=22.13"
+  },
   "workspaces": [
     "packages/*",
     "apps/*"
   ],
   "scripts": {
-    "dev:api": "npm run dev -w @jobportal/api",
+    "dev:api": "node --env-file=.env --watch apps/api/src/index.js",
+    "dev:worker": "node --env-file=.env --watch apps/worker/src/index.js",
     "dev:web": "npm run dev -w @jobportal/web",
-    "dev:worker": "npm run dev -w @jobportal/worker",
-    "docker:up": "docker compose up --build",
+    "build:web": "npm run build -w @jobportal/web",
+    "test": "npm test -w @jobportal/core -w @jobportal/ai -w @jobportal/google -w @jobportal/worker -w @jobportal/api",
+    "test:unit": "npm test -w @jobportal/core -w @jobportal/ai -w @jobportal/google -w @jobportal/worker",
+    "docker:up": "docker compose up -d --build",
     "docker:down": "docker compose down"
   }
 }

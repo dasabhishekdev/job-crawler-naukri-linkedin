@@ -1,17 +1,5 @@
-const { getAuthUrl, connectWithCode, getAuthorizedClient, disconnectGoogle, googleStatus, googleConfigured } = require("./oauth");
-const { syncCandidateSheet, uploadTailoredResume, relevantJobsQuery } = require("./sync");
+const oauth = require("./oauth");
+const { syncUserSheet, uploadGeneratedResume } = require("./sync");
 const { buildSheetRows, SHEET_HEADERS } = require("./sheet-rows");
 
-module.exports = {
-  getAuthUrl,
-  connectWithCode,
-  getAuthorizedClient,
-  disconnectGoogle,
-  googleStatus,
-  googleConfigured,
-  syncCandidateSheet,
-  uploadTailoredResume,
-  relevantJobsQuery,
-  buildSheetRows,
-  SHEET_HEADERS,
-};
+module.exports = { ...oauth, syncUserSheet, uploadGeneratedResume, buildSheetRows, SHEET_HEADERS };

@@ -1,173 +1,60 @@
+# Local stack built from source. Open http://localhost:3006
+# Production uses docker-compose.prod.yml (prebuilt images, MongoDB auth, HTTPS, backups).
+name: job-crawler
+
+x-app-env: &app-env
+  NODE_ENV: production
+  MONGODB_URI: mongodb://mongodb:27017/jobportal
+  PUBLIC_URL: ${PUBLIC_URL:-http://localhost:3006}
+  SESSION_SECRET: ${SESSION_SECRET:?Set SESSION_SECRET in .env}
+  APP_ENCRYPTION_KEY: ${APP_ENCRYPTION_KEY:?Set APP_ENCRYPTION_KEY in .env}
+  ADMIN_EMAILS: ${ADMIN_EMAILS:-}
+  GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+  GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+
 services:
   mongodb:
     image: mongo:7
+    restart: unless-stopped
     ports:
-      - "27017:27017"
+      - "127.0.0.1:27017:27017"
     volumes:
       - mongodb_data:/data/db
     healthcheck:
-      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping')"]
       interval: 10s
       timeout: 5s
-      retries: 5
-
-  auth-browser:
-    build:
-      context: .
-      dockerfile: apps/auth-browser/Dockerfile
-    ports:
-      - "6080:6080"
-      - "5001:5000"
-    environment:
-      DISPLAY: ":99"
-      AUTH_BROWSER_PORT: 5000
-      MONGODB_URI: mongodb://mongodb:27017/jobportal
-      PROFILE_PATH: /app/config/profile.json
-      RESUME_DIR: /app/resume/anika
-      RESUME_ROOT: /app/resume
-      DATA_DIR: /app/data
-      JOBHUNTER_DB_PATH: /app/linkedin-cli/jobs.db
-      LINKEDIN_STORAGE_STATE: /app/linkedin-cli/storageState.json
-      NAUKRI_STORAGE_STATE: /app/data/naukri-storage-state.json
-      NAUKRI_LOCATION: bengaluru
-      NAUKRI_EXPERIENCE: "2"
-      NAUKRI_KEYWORDS: supply chain|operations analyst|logistics analyst|warehouse operations|quick commerce|line haul|fleet management
-      TARGET_FRESH_JOBS: "20"
-      MAX_JOB_AGE_DAYS: 14
-      MAX_AUTO_APPLY_PER_RUN: "10"
-      AUTO_APPLY_ENABLED: "true"
-      AGENT_SCHEDULE_ENABLED: "true"
-      TIER1_MIN_SCORE: "5"
-      TIER2_MIN_SCORE: "1"
-      SEARCH_DELAY_MS: 2000
-      VALIDATE_DELAY_MS: 1500
-      VNC_PUBLIC_URL: http://localhost:6080/vnc.html?autoconnect=true&resize=scale
-      PLAYWRIGHT_BROWSERS_PATH: /ms-playwright
-      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1"
-      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
-      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o}
-      LINKEDIN_LOCATION: Bangalore, Karnataka, India
-    volumes:
-      - ./linkedin-cli:/app/linkedin-cli
-      - ../anika-resume:/app/resume/anika:ro
-      - ../tanmoy-resume:/app/resume/tanmoy:ro
-      - ./config:/app/config:ro
-      - worker_data:/app/data
-      - ./data/playwright-browsers:/ms-playwright
-    shm_size: "1gb"
-    depends_on:
-      mongodb:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
-      interval: 10s
-      timeout: 5s
-      retries: 8
-      start_period: 40s
+      retries: 6
 
   api:
-    build:
-      context: .
-      dockerfile: apps/api/Dockerfile
-    ports:
-      - "4000:4000"
-    environment:
-      MONGODB_URI: mongodb://mongodb:27017/jobportal
-      API_PORT: 4000
-      RESUME_DIR: /app/resume/anika
-      RESUME_ROOT: /app/resume
-      DATA_DIR: /app/data
-      AUTH_BROWSER_URL: http://auth-browser:5000
-      TARGET_FRESH_JOBS: "20"
-      LINKEDIN_STORAGE_STATE: /app/linkedin-cli/storageState.json
-      NAUKRI_STORAGE_STATE: /app/data/naukri-storage-state.json
-      VNC_PUBLIC_URL: http://localhost:6080/vnc.html
-      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
-      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o}
-      CURSOR_API_KEY: ${CURSOR_API_KEY:-}
-      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
-      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
-      GOOGLE_REDIRECT_URI: ${GOOGLE_REDIRECT_URI:-http://localhost:4000/api/google/oauth/callback}
-      WEB_PUBLIC_URL: ${WEB_PUBLIC_URL:-http://localhost:3006}
-      LINKEDIN_LOCATION: Bangalore, Karnataka, India
-      NAUKRI_LOCATION: bengaluru
-    volumes:
-      - ../anika-resume:/app/resume/anika:ro
-      - ../tanmoy-resume:/app/resume/tanmoy:ro
-      - ./config:/app/config:ro
-      - ./linkedin-cli:/app/linkedin-cli:ro
-      - worker_data:/app/data:ro
+    build: { context: ., dockerfile: apps/api/Dockerfile }
+    restart: unless-stopped
+    environment: *app-env
     depends_on:
-      mongodb:
-        condition: service_healthy
-      auth-browser:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:4000/health"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 20s
+      mongodb: { condition: service_healthy }
 
   worker:
-    build:
-      context: .
-      dockerfile: apps/worker/Dockerfile
+    build: { context: ., dockerfile: apps/worker/Dockerfile }
+    restart: unless-stopped
+    init: true
+    shm_size: "512mb"
     environment:
-      MONGODB_URI: mongodb://mongodb:27017/jobportal
-      TARGET_FRESH_JOBS: "20"
-      MAX_JOB_AGE_DAYS: 14
-      HEADLESS: "true"
-      RESUME_DIR: /app/resume/anika
-      RESUME_ROOT: /app/resume
-      DATA_DIR: /app/data
-      PROFILE_PATH: /app/config/profile.json
-      JOBHUNTER_DB_PATH: /app/linkedin-cli/jobs.db
-      LINKEDIN_STORAGE_STATE: /app/linkedin-cli/storageState.json
-      NAUKRI_STORAGE_STATE: /app/data/naukri-storage-state.json
-      NAUKRI_LOCATION: bengaluru
-      NAUKRI_EXPERIENCE: "2"
-      NAUKRI_KEYWORDS: supply chain|operations analyst|logistics analyst|warehouse operations|quick commerce|line haul|fleet management
-      MAX_AUTO_APPLY_PER_RUN: "10"
-      AUTO_APPLY_ENABLED: "true"
-      AGENT_SCHEDULE_ENABLED: "true"
-      TIER1_MIN_SCORE: "5"
-      TIER2_MIN_SCORE: "1"
-      PLAYWRIGHT_BROWSERS_PATH: /ms-playwright
-      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1"
-      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
-      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o}
-      CURSOR_API_KEY: ${CURSOR_API_KEY:-}
-      CURSOR_MODEL: ${CURSOR_MODEL:-composer-2.5}
-      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
-      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
-      GOOGLE_REDIRECT_URI: ${GOOGLE_REDIRECT_URI:-http://localhost:4000/api/google/oauth/callback}
-      LINKEDIN_LOCATION: Bangalore, Karnataka, India
+      <<: *app-env
+      MAX_CONCURRENT_RUNS: ${MAX_CONCURRENT_RUNS:-3}
     volumes:
-      - ../anika-resume:/app/resume/anika:ro
-      - ../tanmoy-resume:/app/resume/tanmoy:ro
-      - ./config:/app/config:ro
-      - ./linkedin-cli:/app/linkedin-cli:ro
       - worker_data:/app/data
-      - ./data/playwright-browsers:/ms-playwright
     depends_on:
-      mongodb:
-        condition: service_healthy
-      api:
-        condition: service_healthy
+      mongodb: { condition: service_healthy }
 
   web:
-    build:
-      context: .
-      dockerfile: apps/web/Dockerfile
-      args:
-        VITE_API_URL: http://localhost:4000
-        VITE_VNC_URL: http://localhost:6080/vnc.html?autoconnect=true&resize=scale
+    build: { context: ., dockerfile: apps/web/Dockerfile }
+    restart: unless-stopped
+    environment:
+      SITE_ADDRESS: ":80"
     ports:
-      - "3006:3000"
+      - "${WEB_PORT:-3006}:80"
     depends_on:
-      api:
-        condition: service_healthy
+      api: { condition: service_healthy }
 
 volumes:
   mongodb_data:

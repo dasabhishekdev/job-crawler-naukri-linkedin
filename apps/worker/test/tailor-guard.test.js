@@ -1,6 +1,6 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { verifyTailoredResume, resumeToText, resumeFileName } = require("../src/multi/tailor-guard");
+const { verifyTailoredResume, resumeToText, resumeFileName } = require("../src/resume/tailor-guard");
 
 const BASE = `Anika Bhattacharyya
 10on10 Foods | Bangalore, India

@@ -5,27 +5,24 @@ const { buildSheetRows, SHEET_HEADERS } = require("../src/sheet-rows");
 const jobs = [
   {
     first_seen_at: new Date("2026-11-14T12:30:00Z"),
-    fit_score: 82,
-    ats_score: 60,
-    relevancy: "High",
+    match: { score: 82, ats_score: 60, relevancy: "High", summary: "=SUM(A1) looks like a formula" },
     company: "EY",
-    job_title: "Procurement Analyst",
+    title: "Procurement Analyst",
     location: "Bengaluru",
     source: "web",
     source_site: "EY Careers",
     job_url: 'https://careers.ey.com/job/1?x="y"',
-    summary: "=SUM(A1) looks like a formula",
-    tailored: { status: "done", drive_url: "https://drive.google.com/file/d/abc", ats_score: 85 },
-    application_status: "pending",
+    latest_resume_id: { drive_url: "https://drive.google.com/file/d/abc", ats_after: 85 },
+    status: "saved",
   },
   {
-    scraped_at: new Date("2026-11-13T04:00:00Z"),
-    ai_match_score: 71,
-    company: "Acme",
-    job_title: "Ops Executive",
-    source: "naukri",
-    job_url: "https://www.naukri.com/job/2",
-    application_status: "applied",
+    first_seen_at: new Date("2026-11-13T04:00:00Z"),
+    match: { score: 71 },
+    company: "Groww",
+    title: "Procurement Specialist",
+    source: "career_page",
+    job_url: "https://job-boards.greenhouse.io/groww/jobs/2",
+    status: "new",
   },
 ];
 
@@ -46,7 +43,8 @@ test("formats IST dates, scores, links and escapes formulas", () => {
   assert.equal(first[9], "'=SUM(A1) looks like a formula");
   assert.equal(first[10], '=HYPERLINK("https://drive.google.com/file/d/abc","Resume PDF")');
   assert.equal(first[11], 85);
-  assert.equal(second[1], 71);
-  assert.equal(second[7], "Naukri");
-  assert.equal(second[12], "Applied");
+  assert.equal(first[12], "Saved");
+  assert.equal(second[2], "");
+  assert.equal(second[7], "Career page");
+  assert.equal(second[10], "");
 });

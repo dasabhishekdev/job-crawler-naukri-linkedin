@@ -2,31 +2,45 @@ const path = require("path");
 const pdfParse = require("pdf-parse");
 const mammoth = require("mammoth");
 
-const MAX_CHARS = 12000;
+const MAX_CHARS = 20000;
+const ALLOWED = {
+  ".pdf": "application/pdf",
+  ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+};
+
+function cleanText(raw) {
+  return String(raw || "")
+    .replace(/\r\n?/g, "\n")
+    .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g, "")
+    .split("\n")
+    .map((line) => line.replace(/[ \t\u00a0]+/g, " ").trim())
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+function resumeMimeType(filename) {
+  return ALLOWED[path.extname(filename || "").toLowerCase()] || null;
+}
 
 async function parseResume(buffer, filename) {
   const ext = path.extname(filename || "").toLowerCase();
-  let text = "";
-
-  if (ext === ".pdf") {
-    const data = await pdfParse(buffer);
-    text = data.text || "";
-  } else if (ext === ".docx") {
-    const result = await mammoth.extractRawText({ buffer });
-    text = result.value || "";
-  } else if (ext === ".md" || ext === ".txt") {
-    text = buffer.toString("utf8");
-  } else {
-    throw new Error(`Unsupported file type: ${ext}. Use PDF, DOCX, MD, or TXT.`);
+  let text;
+  switch (ext) {
+    case ".pdf":
+      text = (await pdfParse(buffer)).text;
+      break;
+    case ".docx":
+      text = (await mammoth.extractRawText({ buffer })).value;
+      break;
+    default:
+      throw new Error("Upload a PDF or DOCX resume.");
   }
-
-  text = text.replace(/\s+/g, " ").trim();
-  if (text.length < 100) {
-    throw new Error(
-      "Resume text too short — check the file is not empty or image-only (scanned PDF)."
-    );
+  const cleaned = cleanText(text);
+  if (cleaned.replace(/\s/g, "").length < 200) {
+    throw new Error("We could not read text from this file. If it is a scanned PDF, upload a DOCX or a text-based PDF.");
   }
-  return text.slice(0, MAX_CHARS);
+  return cleaned.slice(0, MAX_CHARS);
 }
 
-module.exports = { parseResume, MAX_CHARS };
+module.exports = { parseResume, cleanText, resumeMimeType, MAX_CHARS };

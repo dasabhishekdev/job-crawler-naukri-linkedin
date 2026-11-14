@@ -6,20 +6,15 @@
   "scripts": {
     "start": "node src/index.js",
     "dev": "node --watch src/index.js",
-    "crawl": "node src/index.js --once",
-    "agent": "node src/index.js --agent",
-    "naukri:login": "node src/scripts/naukri-login.js",
-    "multi": "node src/scripts/run-multi-once.js",
-    "test": "node --test test/*.test.js"
+    "test": "node --test test/*.test.js",
+    "migrate:legacy": "node src/scripts/migrate-legacy.js"
   },
   "dependencies": {
-    "@cursor/sdk": "^1.3.1",
-    "@jobportal/agent": "*",
+    "@jobportal/ai": "*",
     "@jobportal/core": "*",
     "@jobportal/db": "*",
     "@jobportal/google": "*",
-    "better-sqlite3": "^11.10.0",
     "node-cron": "^3.0.3",
-    "playwright": "^1.61.1"
+    "playwright": "1.61.1"
   }
 }

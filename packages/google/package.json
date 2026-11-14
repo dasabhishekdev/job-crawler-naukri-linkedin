@@ -9,6 +9,7 @@
   "dependencies": {
     "@googleapis/drive": "^27.1.0",
     "@googleapis/sheets": "^18.1.3",
+    "@jobportal/ai": "*",
     "@jobportal/db": "*"
   }
 }

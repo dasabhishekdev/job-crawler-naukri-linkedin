@@ -12,3 +12,5 @@ linkedin-cli/jobs-*.xlsx
 linkedin-cli/jobs-*.txt
 
 .DS_Store
+backups/
+.playwright-mcp/

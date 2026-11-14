@@ -1,0 +1,14 @@
+**/node_modules
+**/dist
+.git
+.github
+.env
+.env.*
+!.env.example
+data
+backups
+linkedin-cli
+docs
+**/*.log
+**/.DS_Store
+**/test

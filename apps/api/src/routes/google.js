@@ -1,58 +1,64 @@
+const crypto = require("crypto");
 const express = require("express");
-const { getActiveCandidate, getCrawlerSettings } = require("@jobportal/agent");
-const { getAuthUrl, connectWithCode, disconnectGoogle, googleStatus, syncCandidateSheet } = require("@jobportal/google");
+const { encryptSecret } = require("@jobportal/ai");
+const { googleConfigured, driveAuthUrl, exchangeDriveCode, revokeDrive, syncUserSheet } = require("@jobportal/google");
+const { issueOAuthState, readOAuthState, requireUser } = require("../middleware/session");
+const { badRequest } = require("../lib/http-error");
+const { publicGoogle } = require("../lib/serialize");
 
-const router = express.Router();
+function googleRouter(config) {
+  const router = express.Router();
 
-function webUrl(query) {
-  const base = (process.env.WEB_PUBLIC_URL || "http://localhost:3006").replace(/\/+$/, "");
-  return `${base}/?${new URLSearchParams(query).toString()}`;
+  router.get("/drive/connect", requireUser, (req, res) => {
+    if (!googleConfigured()) throw badRequest("Google Drive is not enabled on this server.");
+    const state = crypto.randomBytes(16).toString("hex");
+    issueOAuthState(res, config, { state, purpose: "drive", uid: String(req.user._id) });
+    res.redirect(driveAuthUrl(state, req.user.email));
+  });
+
+  router.get("/drive/callback", requireUser, async (req, res) => {
+    const saved = readOAuthState(req, res, config);
+    const done = (status) => res.redirect(`/settings?drive=${status}`);
+    if (req.query.error) return done("cancelled");
+    if (!saved || saved.purpose !== "drive" || saved.state !== req.query.state || saved.uid !== String(req.user._id)) {
+      return done("expired");
+    }
+    try {
+      const tokens = await exchangeDriveCode(String(req.query.code || ""));
+      req.user.google = {
+        refresh_token: encryptSecret(tokens.refresh_token),
+        email: tokens.email,
+        scope: tokens.scope,
+        connected_at: new Date(),
+      };
+      await req.user.save();
+    } catch (err) {
+      console.warn("[google] Drive connect failed:", err.message);
+      return done("failed");
+    }
+    try {
+      await syncUserSheet(req.user);
+    } catch (err) {
+      console.warn("[google] First sheet sync failed:", err.message);
+    }
+    done("connected");
+  });
+
+  router.post("/drive/disconnect", requireUser, async (req, res) => {
+    await revokeDrive(req.user);
+    req.user.google = {};
+    req.user.drive = {};
+    await req.user.save();
+    res.json({ google: publicGoogle(req.user) });
+  });
+
+  router.post("/drive/sync", requireUser, async (req, res) => {
+    const result = await syncUserSheet(req.user);
+    if (!result) throw badRequest("Connect Google Drive first.");
+    res.json({ ...result, google: publicGoogle(req.user) });
+  });
+
+  return router;
 }
 
-router.get("/status", async (_req, res) => {
-  try {
-    res.json(await googleStatus());
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-router.get("/auth-url", async (_req, res) => {
-  try {
-    res.json({ url: await getAuthUrl() });
-  } catch (err) {
-    res.status(400).json({ error: err.message });
-  }
-});
-
-router.get("/oauth/callback", async (req, res) => {
-  if (req.query.error) return res.redirect(webUrl({ google: "error", message: String(req.query.error) }));
-  try {
-    const { email } = await connectWithCode(String(req.query.code || ""), String(req.query.state || ""));
-    res.redirect(webUrl({ google: "connected", email }));
-  } catch (err) {
-    res.redirect(webUrl({ google: "error", message: err.message }));
-  }
-});
-
-router.post("/disconnect", async (_req, res) => {
-  try {
-    await disconnectGoogle();
-    res.json(await googleStatus());
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-router.post("/sync", async (_req, res) => {
-  try {
-    const [candidate, settings] = await Promise.all([getActiveCandidate(), getCrawlerSettings()]);
-    const result = await syncCandidateSheet(candidate, { minFit: settings.min_fit_to_sync });
-    if (!result) return res.status(400).json({ error: "Connect Google Drive first" });
-    res.json(result);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-module.exports = router;
+module.exports = { googleRouter };
