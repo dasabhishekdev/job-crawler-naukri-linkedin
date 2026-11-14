@@ -1,7 +1,7 @@
 const { connectDb, mongoose } = require("@jobportal/db");
 const { startRunner, failStaleRuns } = require("./runner");
 const { startScheduler } = require("./scheduler");
-const { closePdfBrowser } = require("./resume/pdf");
+const { closeBrowser } = require("./browser");
 
 const MONGODB_URI = process.env.MONGODB_URI || "mongodb://localhost:27017/jobportal";
 
@@ -13,13 +13,13 @@ async function main() {
 
   const runner = startRunner({ maxConcurrent: Number(process.env.MAX_CONCURRENT_RUNS) || 3 });
   const scheduler = startScheduler();
-  console.log("Worker ready: polling runs every 5s, hourly crawl at :00 IST");
+  console.log("Worker ready: web crawl hourly at :00, portal crawl every 3h at :30, Naukri refresh 09:15 IST");
 
   async function shutdown(signal) {
     console.log(`${signal} received, finishing active runs…`);
     scheduler.stop();
     await Promise.race([runner.stop(), new Promise((r) => setTimeout(r, 25000))]);
-    await closePdfBrowser();
+    await closeBrowser();
     await mongoose.disconnect();
     process.exit(0);
   }

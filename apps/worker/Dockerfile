@@ -14,6 +14,7 @@ COPY packages/core/package.json packages/core/
 COPY packages/db/package.json packages/db/
 COPY packages/ai/package.json packages/ai/
 COPY packages/google/package.json packages/google/
+COPY packages/portals/package.json packages/portals/
 COPY apps/worker/package.json apps/worker/
 RUN npm ci --workspace=@jobportal/worker --include-workspace-root --omit=dev --no-audit --no-fund \
     && npm cache clean --force

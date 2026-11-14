@@ -8,7 +8,10 @@ export default defineConfig({
   server: {
     port: 3006,
     host: true,
-    proxy: { "/api": { target: API_TARGET, changeOrigin: false } },
+    proxy: {
+      "/api/portals/ws": { target: process.env.BROWSER_PROXY_TARGET || "ws://localhost:5100", ws: true },
+      "/api": { target: API_TARGET, changeOrigin: false },
+    },
   },
   preview: { port: 3006, host: true },
 });

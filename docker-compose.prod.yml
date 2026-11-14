@@ -55,6 +55,18 @@ services:
     depends_on:
       mongodb: { condition: service_healthy }
 
+  browser:
+    image: ${IMAGE_PREFIX:?}-browser:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    logging: *logging
+    init: true
+    shm_size: "1gb"
+    environment:
+      <<: *app-env
+      MAX_LOGIN_SESSIONS: ${MAX_LOGIN_SESSIONS:-3}
+    depends_on:
+      mongodb: { condition: service_healthy }
+
   web:
     image: ${IMAGE_PREFIX:?}-web:${IMAGE_TAG:-latest}
     restart: unless-stopped
@@ -70,6 +82,7 @@ services:
       - caddy_config:/config
     depends_on:
       api: { condition: service_healthy }
+      browser: { condition: service_healthy }
 
   backup:
     image: mongo:7

@@ -12,10 +12,11 @@
   "scripts": {
     "dev:api": "node --env-file=.env --watch apps/api/src/index.js",
     "dev:worker": "node --env-file=.env --watch apps/worker/src/index.js",
+    "dev:browser": "node --env-file=.env --watch apps/browser/src/index.js",
     "dev:web": "npm run dev -w @jobportal/web",
     "build:web": "npm run build -w @jobportal/web",
-    "test": "npm test -w @jobportal/core -w @jobportal/ai -w @jobportal/google -w @jobportal/worker -w @jobportal/api",
-    "test:unit": "npm test -w @jobportal/core -w @jobportal/ai -w @jobportal/google -w @jobportal/worker",
+    "test": "npm test -w @jobportal/core -w @jobportal/ai -w @jobportal/google -w @jobportal/portals -w @jobportal/worker -w @jobportal/api",
+    "test:unit": "npm test -w @jobportal/core -w @jobportal/ai -w @jobportal/google -w @jobportal/portals -w @jobportal/worker",
     "docker:up": "docker compose up -d --build",
     "docker:down": "docker compose down"
   }

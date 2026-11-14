@@ -1,4 +1,4 @@
-const { chromium } = require("playwright");
+const { getBrowser } = require("../browser");
 
 function esc(text) {
   return String(text || "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
@@ -61,27 +61,7 @@ ${extras}
 </body></html>`;
 }
 
-let browserPromise = null;
-
-function getBrowser() {
-  if (!browserPromise) {
-    browserPromise = chromium
-      .launch({ headless: true, args: ["--no-sandbox", "--disable-dev-shm-usage"] })
-      .then((browser) => {
-        browser.on("disconnected", () => {
-          browserPromise = null;
-        });
-        return browser;
-      })
-      .catch((err) => {
-        browserPromise = null;
-        throw err;
-      });
-  }
-  return browserPromise;
-}
-
-/** Renders the structured resume to an A4 PDF buffer, reusing one headless Chromium. */
+/** Renders the structured resume to an A4 PDF buffer in the worker's shared Chromium. */
 async function renderResumePdf(resume) {
   const browser = await getBrowser();
   const context = await browser.newContext({ javaScriptEnabled: false });
@@ -94,11 +74,4 @@ async function renderResumePdf(resume) {
   }
 }
 
-async function closePdfBrowser() {
-  if (!browserPromise) return;
-  const browser = await browserPromise.catch(() => null);
-  browserPromise = null;
-  await browser?.close().catch(() => {});
-}
-
-module.exports = { renderResumePdf, resumeHtml, closePdfBrowser };
+module.exports = { renderResumePdf, resumeHtml };

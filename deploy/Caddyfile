@@ -14,6 +14,10 @@
 	@https protocol https
 	header @https Strict-Transport-Security "max-age=31536000; includeSubDomains"
 
+	handle /api/portals/ws* {
+		reverse_proxy browser:5100
+	}
+
 	handle /api/* {
 		reverse_proxy api:4000
 	}

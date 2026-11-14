@@ -3,13 +3,20 @@ import { api } from "../api";
 import { usePoll } from "../hooks";
 import { Alert, Button, Empty, Sheet, formatDateTime, timeAgo } from "../components/ui";
 
-const KIND_LABELS = { crawl: "Job search", parse_resume: "Resume analysis", generate_resume: "Tailored resume" };
+const KIND_LABELS = {
+  crawl: "Web job search",
+  portal_crawl: "LinkedIn / Naukri search",
+  parse_resume: "Resume analysis",
+  generate_resume: "Tailored resume",
+  naukri_refresh: "Naukri profile refresh",
+};
 const STATUS_TONES = { completed: "badge-green", failed: "badge-red", cancelled: "badge-orange", running: "badge-blue", queued: "badge" };
 
 function summary(run) {
   const c = run.counters || {};
   switch (run.kind) {
     case "crawl":
+    case "portal_crawl":
       return run.status === "completed" || c.found
         ? `${c.found || 0} found · ${c.new || 0} new · ${c.scored || 0} scored · ${c.relevant || 0} good matches`
         : run.detail || "";
@@ -17,6 +24,8 @@ function summary(run) {
       return run.result ? `ATS ${run.result.ats_before ?? "?"}% → ${run.result.ats_after ?? "?"}%` : run.detail || "";
     case "parse_resume":
       return run.result ? `${run.result.target_roles} roles, ${run.result.skills} skills` : run.detail || "";
+    case "naukri_refresh":
+      return run.result ? (run.result.confirmed ? `Uploaded ${run.result.filename}` : "Upload sent, not confirmed") : run.detail || "";
     default:
       return run.detail || "";
   }

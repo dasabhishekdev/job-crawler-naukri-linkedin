@@ -46,6 +46,17 @@ services:
     depends_on:
       mongodb: { condition: service_healthy }
 
+  browser:
+    build: { context: ., dockerfile: apps/browser/Dockerfile }
+    restart: unless-stopped
+    init: true
+    shm_size: "1gb"
+    environment:
+      <<: *app-env
+      MAX_LOGIN_SESSIONS: ${MAX_LOGIN_SESSIONS:-3}
+    depends_on:
+      mongodb: { condition: service_healthy }
+
   web:
     build: { context: ., dockerfile: apps/web/Dockerfile }
     restart: unless-stopped
@@ -55,6 +66,7 @@ services:
       - "${WEB_PORT:-3006}:80"
     depends_on:
       api: { condition: service_healthy }
+      browser: { condition: service_healthy }
 
 volumes:
   mongodb_data:

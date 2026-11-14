@@ -3,11 +3,15 @@ const { createRunContext, RunCancelled } = require("./run-context");
 const { parseResumeTask } = require("./tasks/parse-resume");
 const { crawlTask } = require("./tasks/crawl");
 const { generateResumeTask } = require("./tasks/generate-resume");
+const { portalCrawlTask } = require("./tasks/portal-crawl");
+const { naukriRefreshTask } = require("./tasks/naukri-refresh");
 
 const HANDLERS = {
   parse_resume: parseResumeTask,
   crawl: crawlTask,
   generate_resume: generateResumeTask,
+  portal_crawl: portalCrawlTask,
+  naukri_refresh: naukriRefreshTask,
 };
 
 const HEARTBEAT_MS = 30 * 1000;

@@ -8,6 +8,7 @@ import { SearchSettings } from "../settings/SearchSettings";
 import { CareerPages } from "../settings/CareerPages";
 import { DriveSettings } from "../settings/DriveSettings";
 import { AccountSettings } from "../settings/AccountSettings";
+import { PortalSettings } from "../settings/PortalSettings";
 
 const DRIVE_NOTICES = {
   connected: "Google Drive connected. Your sheet is ready.",
@@ -51,6 +52,9 @@ export function SettingsPage() {
       </Card>
       <Card title="Search">
         <SearchSettings settings={settings} onChange={update} />
+      </Card>
+      <Card title="Job portals">
+        <PortalSettings />
       </Card>
       <Card title="Target companies">
         <CareerPages profile={profile} />

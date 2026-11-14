@@ -24,7 +24,7 @@ jobs:
     strategy:
       fail-fast: true
       matrix:
-        app: [api, worker, web]
+        app: [api, worker, browser, web]
     steps:
       - uses: actions/checkout@v4
       - name: Image name

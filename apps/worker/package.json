@@ -14,6 +14,7 @@
     "@jobportal/core": "*",
     "@jobportal/db": "*",
     "@jobportal/google": "*",
+    "@jobportal/portals": "*",
     "node-cron": "^3.0.3",
     "playwright": "1.61.1"
   }

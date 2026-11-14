@@ -124,6 +124,30 @@ test("resume upload only accepts real PDF or DOCX files", async () => {
   assert.match(fake.body.error, /not a valid PDF/);
 });
 
+test("portal connect issues a single-use, short-lived ticket bound to the user", async () => {
+  const { consumeTicket } = require("@jobportal/portals");
+  const { agent } = await signup("portal@example.com");
+  const status = await agent.get("/api/portals");
+  assert.deepEqual(status.body.portals.map((p) => [p.portal, p.status]), [["linkedin", "disconnected"], ["naukri", "disconnected"]]);
+  assert.equal((await agent.post("/api/portals/monster/connect").send({})).status, 400);
+
+  const res = await agent.post("/api/portals/linkedin/connect").send({ viewport: { width: 390, height: 780, mobile: true } });
+  assert.equal(res.status, 201);
+  assert.ok(res.body.ticket.length >= 40);
+  const ticket = await consumeTicket(res.body.ticket);
+  assert.equal(ticket.portal, "linkedin");
+  assert.equal(String(ticket.user_id), String((await User.findOne({ email: "portal@example.com" }))._id));
+  assert.equal(await consumeTicket(res.body.ticket), null, "tickets cannot be reused");
+  assert.equal(await consumeTicket("forged-ticket"), null);
+
+  const crawl = await agent.post("/api/portals/crawl");
+  assert.equal(crawl.status, 400);
+  assert.match(crawl.body.error, /Connect LinkedIn or Naukri/);
+  const settings = await agent.put("/api/portals/settings").send({ naukri_profile_refresh: true });
+  assert.equal(settings.body.settings.naukri_profile_refresh, true);
+  assert.equal((await request(app).post("/api/portals/linkedin/connect").send({})).status, 401);
+});
+
 test("AI key and crawl endpoints validate input and prerequisites", async () => {
   const { agent } = await signup("ai@example.com");
   assert.equal((await agent.put("/api/settings/ai-key").send({ provider: "cursor", api_key: "short" })).status, 400);

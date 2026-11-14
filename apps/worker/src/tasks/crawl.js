@@ -1,4 +1,4 @@
-const { JobPosting } = require("@jobportal/db");
+const { JobPosting, JOB_SOURCES } = require("@jobportal/db");
 const { syncUserSheet } = require("@jobportal/google");
 const { searchWeb, crawlCareerPages } = require("../crawl/discovery");
 const { scoreJobs } = require("../crawl/score");
@@ -19,7 +19,7 @@ function toRecord(raw, { profile, maxAgeDays }) {
   const age = postedAgeDays(raw.posted);
   if (age !== null && age > maxAgeDays) return { skip: "too old" };
   return {
-    source: raw.source === "career_page" ? "career_page" : "web",
+    source: JOB_SOURCES.includes(raw.source) ? raw.source : "web",
     source_site: String(raw.source_site || "").slice(0, 80),
     job_url: url,
     title: title.slice(0, 200),
@@ -87,49 +87,54 @@ async function crawlTask({ user, run, log, stage, count, checkCancel }) {
     }
     profile.markModified("career_pages");
     await profile.save();
-
-    const records = [];
-    const skipped = {};
-    for (const r of raw) {
-      const rec = toRecord(r, { profile, maxAgeDays: settings.max_job_age_days });
-      if (rec.skip) skipped[rec.skip] = (skipped[rec.skip] || 0) + 1;
-      else records.push(rec);
-    }
-    const created = await storeNewJobs(records, { userId: user._id, runId: run._id });
-    await count({ found: raw.length, matched_filters: records.length, new: created });
-    const skipText = Object.entries(skipped).map(([reason, n]) => `${n} ${reason}`).join(", ");
-    await log.info(
-      `Found ${raw.length} postings, ${records.length} passed your filters${skipText ? ` (skipped: ${skipText})` : ""}, ${created} are new`
-    );
-    await checkCancel();
-
-    await stage("score", "Scoring jobs against your resume");
-    const toScore = await JobPosting.find({
-      user_id: user._id,
-      "match.scored_at": null,
-      first_seen_at: { $gte: new Date(Date.now() - RESCORE_WINDOW_DAYS * 86400000) },
-    })
-      .sort({ first_seen_at: -1 })
-      .limit(MAX_SCORE_PER_RUN);
-    const scored = await scoreJobs({ ai, jobs: toScore, resumeText: resume.text, profile, log, checkCancel });
-    const relevant = await JobPosting.countDocuments({
-      run_id: run._id,
-      "match.score": { $gte: settings.min_match_to_sheet },
-    });
-    await count({ scored, relevant });
-    await log.info(`Scored ${scored} jobs; ${relevant} new jobs match ${settings.min_match_to_sheet}%+`);
-
-    if (user.google?.refresh_token) {
-      await stage("sync", "Updating your Google Sheet");
-      try {
-        const sync = await syncUserSheet(user);
-        await log.info(`Google Sheet updated with ${sync.rows} jobs`);
-      } catch (err) {
-        await log.warn(`Google Sheet sync failed: ${err.message}`);
-      }
-    }
-    return { found: raw.length, new: created, scored, relevant };
+    return ingestJobs({ ai, raw, user, profile, resume, run, log, stage, count, checkCancel });
   });
 }
 
-module.exports = { crawlTask, toRecord, storeNewJobs };
+/** Filters, de-duplicates, stores and scores discovered postings, then syncs the sheet. Shared by all crawl kinds. */
+async function ingestJobs({ ai, raw, user, profile, resume, run, log, stage, count, checkCancel }) {
+  const settings = user.crawler;
+  const records = [];
+  const skipped = {};
+  for (const r of raw) {
+    const rec = toRecord(r, { profile, maxAgeDays: settings.max_job_age_days });
+    if (rec.skip) skipped[rec.skip] = (skipped[rec.skip] || 0) + 1;
+    else records.push(rec);
+  }
+  const created = await storeNewJobs(records, { userId: user._id, runId: run._id });
+  await count({ found: raw.length, matched_filters: records.length, new: created });
+  const skipText = Object.entries(skipped).map(([reason, n]) => `${n} ${reason}`).join(", ");
+  await log.info(
+    `Found ${raw.length} postings, ${records.length} passed your filters${skipText ? ` (skipped: ${skipText})` : ""}, ${created} are new`
+  );
+  await checkCancel();
+
+  await stage("score", "Scoring jobs against your resume");
+  const toScore = await JobPosting.find({
+    user_id: user._id,
+    "match.scored_at": null,
+    first_seen_at: { $gte: new Date(Date.now() - RESCORE_WINDOW_DAYS * 86400000) },
+  })
+    .sort({ first_seen_at: -1 })
+    .limit(MAX_SCORE_PER_RUN);
+  const scored = await scoreJobs({ ai, jobs: toScore, resumeText: resume.text, profile, log, checkCancel });
+  const relevant = await JobPosting.countDocuments({
+    run_id: run._id,
+    "match.score": { $gte: settings.min_match_to_sheet },
+  });
+  await count({ scored, relevant });
+  await log.info(`Scored ${scored} jobs; ${relevant} new jobs match ${settings.min_match_to_sheet}%+`);
+
+  if (user.google?.refresh_token) {
+    await stage("sync", "Updating your Google Sheet");
+    try {
+      const sync = await syncUserSheet(user);
+      await log.info(`Google Sheet updated with ${sync.rows} jobs`);
+    } catch (err) {
+      await log.warn(`Google Sheet sync failed: ${err.message}`);
+    }
+  }
+  return { found: raw.length, new: created, scored, relevant };
+}
+
+module.exports = { crawlTask, ingestJobs, toRecord, storeNewJobs };

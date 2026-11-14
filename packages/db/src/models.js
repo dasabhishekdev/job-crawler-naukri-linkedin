@@ -4,7 +4,9 @@ const { Schema } = mongoose;
 const ObjectId = Schema.Types.ObjectId;
 
 const AI_PROVIDERS = ["cursor", "openai"];
-const RUN_KINDS = ["parse_resume", "crawl", "generate_resume"];
+const PORTALS = ["linkedin", "naukri"];
+const JOB_SOURCES = ["web", "career_page", ...PORTALS];
+const RUN_KINDS = ["parse_resume", "crawl", "generate_resume", "portal_crawl", "naukri_refresh"];
 const RUN_STATUSES = ["queued", "running", "completed", "failed", "cancelled"];
 const JOB_STATUSES = ["new", "saved", "applied", "hidden"];
 
@@ -51,6 +53,11 @@ const userSchema = new Schema(
       jobs_per_search: { type: Number, default: 8 },
       min_match_to_sheet: { type: Number, default: 50 },
       daily_run_limit: { type: Number, default: 24 },
+    },
+    portals: {
+      crawl_enabled: { type: Boolean, default: true },
+      naukri_profile_refresh: { type: Boolean, default: false },
+      last_naukri_refresh_at: Date,
     },
     google: {
       refresh_token: String,
@@ -138,7 +145,7 @@ const jobPostingSchema = new Schema(
   {
     user_id: { type: ObjectId, ref: "User", required: true },
     run_id: { type: ObjectId, ref: "Run" },
-    source: { type: String, enum: ["web", "career_page"], required: true },
+    source: { type: String, enum: JOB_SOURCES, required: true },
     source_site: String,
     job_url: { type: String, required: true },
     title: { type: String, required: true },
@@ -215,6 +222,40 @@ const generatedResumeSchema = new Schema(
   { timestamps: true }
 );
 
+const portalConnectionSchema = new Schema(
+  {
+    user_id: { type: ObjectId, ref: "User", required: true },
+    portal: { type: String, enum: PORTALS, required: true },
+    status: { type: String, enum: ["connected", "expired"], default: "connected" },
+    storage_state: { type: String, select: false },
+    connected_at: Date,
+    last_checked_at: Date,
+    last_crawl_at: Date,
+    last_error: String,
+  },
+  { timestamps: true }
+);
+
+portalConnectionSchema.index({ user_id: 1, portal: 1 }, { unique: true });
+
+const loginTicketSchema = new Schema(
+  {
+    token_hash: { type: String, required: true, unique: true },
+    user_id: { type: ObjectId, ref: "User", required: true },
+    portal: { type: String, enum: PORTALS, required: true },
+    viewport: {
+      width: Number,
+      height: Number,
+      mobile: Boolean,
+    },
+    expires_at: { type: Date, required: true },
+    used_at: Date,
+  },
+  { versionKey: false }
+);
+
+loginTicketSchema.index({ expires_at: 1 }, { expireAfterSeconds: 600 });
+
 const User = mongoose.model("User", userSchema);
 const Profile = mongoose.model("Profile", profileSchema);
 const Resume = mongoose.model("Resume", resumeSchema);
@@ -222,11 +263,15 @@ const JobPosting = mongoose.model("JobPosting", jobPostingSchema, "job_postings"
 const Run = mongoose.model("Run", runSchema);
 const RunLog = mongoose.model("RunLog", runLogSchema, "run_logs");
 const GeneratedResume = mongoose.model("GeneratedResume", generatedResumeSchema, "generated_resumes");
+const PortalConnection = mongoose.model("PortalConnection", portalConnectionSchema, "portal_connections");
+const LoginTicket = mongoose.model("LoginTicket", loginTicketSchema, "login_tickets");
+
+const ALL_MODELS = [User, Profile, Resume, JobPosting, Run, RunLog, GeneratedResume, PortalConnection, LoginTicket];
 
 async function connectDb(uri) {
   mongoose.set("strictQuery", true);
   await mongoose.connect(uri, { serverSelectionTimeoutMS: 15000 });
-  await Promise.all([User, Profile, Resume, JobPosting, Run, RunLog, GeneratedResume].map((m) => m.syncIndexes()));
+  await Promise.all(ALL_MODELS.map((m) => m.syncIndexes()));
   return mongoose.connection;
 }
 
@@ -234,8 +279,12 @@ module.exports = {
   mongoose,
   connectDb,
   AI_PROVIDERS,
+  PORTALS,
+  JOB_SOURCES,
   RUN_KINDS,
   JOB_STATUSES,
+  PortalConnection,
+  LoginTicket,
   User,
   Profile,
   Resume,

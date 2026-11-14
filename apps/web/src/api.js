@@ -68,6 +68,13 @@ export const api = {
   startCrawl: () => request("/runs/crawl", { method: "POST" }),
   cancelRun: (id) => request(`/runs/${id}/cancel`, { method: "POST" }),
 
+  getPortals: () => request("/portals"),
+  connectPortal: (portal, viewport) => request(`/portals/${portal}/connect`, { method: "POST", body: { viewport } }),
+  disconnectPortal: (portal) => request(`/portals/${portal}`, { method: "DELETE" }),
+  savePortalSettings: (body) => request("/portals/settings", { method: "PUT", body }),
+  portalCrawl: () => request("/portals/crawl", { method: "POST" }),
+  naukriRefresh: () => request("/portals/naukri/refresh", { method: "POST" }),
+
   disconnectDrive: () => request("/google/drive/disconnect", { method: "POST" }),
   syncDrive: () => request("/google/drive/sync", { method: "POST" }),
 

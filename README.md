@@ -7,14 +7,17 @@ A multi-user AI job crawler. People sign up (email + password or Google), upload
 - **Scoring:** match %, relevancy, a short summary, ATS % and missing keywords per job.
 - **Bring your own AI:** each user saves a Cursor and/or OpenAI key (encrypted at rest) and picks the provider + model that does all the work.
 - **Google Drive (optional):** a per-user "Job Matches" sheet (newest first) and a folder of generated resume PDFs.
+- **LinkedIn / Naukri (optional):** users sign in through a private in-app login window; the platform then crawls each portal's recommended jobs and a logged-in search every 3 hours. Optional daily Naukri profile refresh. No auto-apply.
 - **Admin:** users with emails in `ADMIN_EMAILS` can see usage, disable accounts and issue one-time password resets.
 
 ## Layout
 
 ```
 apps/api       Express API (auth, profile, resume, jobs, runs, settings, Google, admin)
-apps/worker    Run queue: resume parsing, crawling, resume generation, hourly scheduler
+apps/worker    Run queue: resume parsing, web + portal crawling, resume generation, Naukri refresh, scheduler
+apps/browser   Private login windows for LinkedIn/Naukri (streamed headless Chromium over WebSocket)
 apps/web       React SPA (mobile-first), served by Caddy in Docker
+packages/portals Portal login/session helpers, URL builders, navigation allowlist, login tickets
 packages/db    Mongoose models + run queue helpers
 packages/ai    Cursor / OpenAI providers, key encryption
 packages/google Google sign-in, Drive and Sheets
@@ -42,9 +45,22 @@ Needs Node 22.13+ and MongoDB on `localhost:27017`.
 npm install
 npm run dev:api      # :4000
 npm run dev:worker
-npm run dev:web      # :3006, proxies /api to :4000
+npm run dev:browser  # :5100, login windows
+npm run dev:web      # :3006, proxies /api to :4000 and /api/portals/ws to :5100
 npm test             # unit + API integration tests (uses mongodb://localhost:27017/jobcrawler_test)
 ```
+
+## LinkedIn and Naukri connections
+
+**Settings → Job portals → Connect** opens a full-screen login window. It is a fresh, isolated headless Chromium context on the server (`browser` service), streamed to the user as JPEG frames over an authenticated WebSocket; taps and typing are sent back. It works on phones (the window emulates the user's screen).
+
+- Access needs a single-use ticket (60 s) issued to the signed-in user; the WebSocket also checks the Origin header. The `browser` service has no public port; Caddy routes `/api/portals/ws` to it.
+- Navigation is limited to LinkedIn/Naukri, their CDNs, Google/Apple sign-in and captcha providers. Windows close after 5 idle minutes (15 minutes max); `MAX_LOGIN_SESSIONS` (default 3) run at once.
+- When the login cookie appears, the browser storage state is encrypted (AES-256-GCM with `APP_ENCRYPTION_KEY`) into `portal_connections`. Passwords are never stored.
+- The worker crawls with that session every 3 hours at :30 (recommended jobs + 2 searches, up to 20 job pages per portal, 2.5–5 s between pages), refreshes the stored session, and marks it **expired** when the portal asks to sign in again.
+- **Refresh my Naukri profile daily** re-uploads the current resume at 09:15 IST.
+
+Portals can restrict accounts that look automated. Keep the limits conservative and connect personal accounts only.
 
 ## Google sign-in and Drive (optional)
 
@@ -57,7 +73,7 @@ npm test             # unit + API integration tests (uses mongodb://localhost:27
 
 ## Deploy to a VPS (GitHub Actions)
 
-Pushing to `main` runs `.github/workflows/deploy.yml`: tests → build `api`, `worker`, `web` images → push to GHCR → SSH into the VPS → `docker compose pull && up -d` → wait for the API health check.
+Pushing to `main` runs `.github/workflows/deploy.yml`: tests → build `api`, `worker`, `browser`, `web` images → push to GHCR → SSH into the VPS → `docker compose pull && up -d` → wait for the API health check.
 
 ### One-time server setup
 

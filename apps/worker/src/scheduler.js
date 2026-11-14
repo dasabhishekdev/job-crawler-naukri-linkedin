@@ -1,35 +1,56 @@
 const cron = require("node-cron");
-const { User, Profile, enqueueRun } = require("@jobportal/db");
+const { User, Profile, PortalConnection, enqueueRun } = require("@jobportal/db");
 const { aiReady } = require("@jobportal/ai");
+
+async function queueFor(users, kind, { needsRoles = true, dailyLimit } = {}) {
+  let queued = 0;
+  for (const user of users) {
+    if (!aiReady(user) && kind !== "naukri_refresh") continue;
+    if (needsRoles) {
+      const profile = await Profile.findOne({ user_id: user._id }, "target_roles").lean();
+      if (!profile?.target_roles?.length) continue;
+    }
+    try {
+      const result = await enqueueRun({ userId: user._id, kind, triggeredBy: "schedule", dailyLimit: dailyLimit?.(user) });
+      if (result.queued) queued++;
+    } catch (err) {
+      if (err.name !== "QueueLimitError") console.error(`[scheduler] ${kind} ${user.email}: ${err.message}`);
+    }
+  }
+  console.log(`[scheduler] ${kind} queued for ${queued}/${users.length} users`);
+}
+
+async function usersWithConnection(portalFilter, userFilter) {
+  const userIds = await PortalConnection.distinct("user_id", { status: "connected", ...portalFilter });
+  return User.find({ _id: { $in: userIds }, status: "active", ...userFilter });
+}
 
 async function queueHourlyCrawls() {
   const users = await User.find({ status: "active", "crawler.hourly_enabled": true });
-  let queued = 0;
-  for (const user of users) {
-    if (!aiReady(user)) continue;
-    const profile = await Profile.findOne({ user_id: user._id }, "target_roles").lean();
-    if (!profile?.target_roles?.length) continue;
-    try {
-      const result = await enqueueRun({
-        userId: user._id,
-        kind: "crawl",
-        triggeredBy: "schedule",
-        dailyLimit: user.crawler?.daily_run_limit,
-      });
-      if (result.queued) queued++;
-    } catch (err) {
-      if (err.name !== "QueueLimitError") console.error(`[scheduler] ${user.email}: ${err.message}`);
-    }
-  }
-  console.log(`[scheduler] Hourly crawl queued for ${queued}/${users.length} users`);
+  await queueFor(users, "crawl", { dailyLimit: (u) => u.crawler?.daily_run_limit });
+}
+
+async function queuePortalCrawls() {
+  await queueFor(await usersWithConnection({}, { "portals.crawl_enabled": { $ne: false } }), "portal_crawl");
+}
+
+async function queueNaukriRefresh() {
+  await queueFor(await usersWithConnection({ portal: "naukri" }, { "portals.naukri_profile_refresh": true }), "naukri_refresh", {
+    needsRoles: false,
+  });
+}
+
+function schedule(expression, fn) {
+  return cron.schedule(expression, () => fn().catch((err) => console.error("[scheduler]", err.message)), { timezone: "Asia/Kolkata" });
 }
 
 function startScheduler() {
-  return cron.schedule(
-    "0 * * * *",
-    () => queueHourlyCrawls().catch((err) => console.error("[scheduler]", err.message)),
-    { timezone: "Asia/Kolkata" }
-  );
+  const jobs = [
+    schedule("0 * * * *", queueHourlyCrawls),
+    schedule("30 */3 * * *", queuePortalCrawls),
+    schedule("15 9 * * *", queueNaukriRefresh),
+  ];
+  return { stop: () => jobs.forEach((j) => j.stop()) };
 }
 
-module.exports = { startScheduler, queueHourlyCrawls };
+module.exports = { startScheduler, queueHourlyCrawls, queuePortalCrawls, queueNaukriRefresh };
