@@ -10,6 +10,7 @@ cd "$ROOT"
 COMPOSE=(docker compose -f docker-compose.prod.yml)
 IMAGES=(job-crawler-web job-crawler-api job-crawler-worker job-crawler-browser)
 HEALTHY_CONTAINERS=(job-crawler-web job-crawler-api job-crawler-browser job-crawler-mongodb)
+MONGO_VOLUME=job-crawler_mongo_data
 export GIT_SHA="${GIT_SHA:-$(git rev-parse --short HEAD 2>/dev/null || echo manual)}"
 
 if ! docker network inspect web >/dev/null 2>&1; then
@@ -51,22 +52,63 @@ if [[ -z "$(env_get PUBLIC_URL)" || "$(env_get PUBLIC_URL)" == "http://localhost
 fi
 umask 022
 
+wait_container_healthy() {
+  local name="$1" tries="${2:-45}" status
+  for _ in $(seq 1 "$tries"); do
+    status="$(docker inspect --format '{{.State.Health.Status}}' "$name" 2>/dev/null || echo missing)"
+    [[ "$status" == healthy ]] && return 0
+    sleep 2
+  done
+  echo "Container $name did not become healthy (last status: $status)." >&2
+  return 1
+}
+
 wait_healthy() {
-  local name status
+  local name
   for name in "${HEALTHY_CONTAINERS[@]}"; do
-    for _ in $(seq 1 60); do
-      status="$(docker inspect --format '{{.State.Health.Status}}' "$name" 2>/dev/null || echo missing)"
-      [[ "$status" == healthy ]] && continue 2
-      sleep 2
-    done
-    echo "Container $name did not become healthy (last status: $status)." >&2
-    return 1
+    wait_container_healthy "$name" 60 || return 1
   done
 }
 
 smoke_test() {
   local curl=(docker run --rm --network web curlimages/curl:8.10.1 -fsS)
   "${curl[@]}" http://job-crawler-web/api/health >/dev/null
+}
+
+mongo_auth_ok() {
+  local user pass
+  user="$(env_get MONGO_ROOT_USER)"
+  pass="$(env_get MONGO_ROOT_PASSWORD)"
+  "${COMPOSE[@]}" exec -T mongodb mongosh --quiet \
+    --username "$user" --password "$pass" --authenticationDatabase admin \
+    --eval 'db.adminCommand({ ping: 1 }).ok' 2>/dev/null | grep -qx '1'
+}
+
+# MONGO_INITDB_* only applies on an empty data dir. If .env was regenerated while the
+# volume kept the old password, apps fail with SCRAM storedKey mismatch — reset once.
+ensure_mongo_credentials() {
+  echo "==> Starting MongoDB"
+  "${COMPOSE[@]}" up -d mongodb
+  wait_container_healthy job-crawler-mongodb 45
+
+  if mongo_auth_ok; then
+    echo "MongoDB credentials match .env"
+    return 0
+  fi
+
+  echo "==> MongoDB auth failed for user '$(env_get MONGO_ROOT_USER)' — .env password does not match volume."
+  echo "    Resetting volume $MONGO_VOLUME so MONGO_INITDB_* from .env can initialize a fresh database."
+  "${COMPOSE[@]}" stop mongodb >/dev/null
+  "${COMPOSE[@]}" rm -f mongodb >/dev/null
+  docker volume rm -f "$MONGO_VOLUME" >/dev/null
+  "${COMPOSE[@]}" up -d mongodb
+  wait_container_healthy job-crawler-mongodb 45
+  if ! mongo_auth_ok; then
+    echo "MongoDB still rejects .env credentials after volume reset." >&2
+    "${COMPOSE[@]}" logs --tail 40 mongodb >&2 || true
+    return 1
+  fi
+  echo "MongoDB re-initialized with current .env credentials"
 }
 
 had_previous=true
@@ -81,7 +123,9 @@ done
 echo "==> Building images ($GIT_SHA)"
 "${COMPOSE[@]}" build --pull
 
-echo "==> Starting containers"
+ensure_mongo_credentials
+
+echo "==> Starting app containers"
 up_ok=true
 if ! "${COMPOSE[@]}" up -d --remove-orphans; then
   up_ok=false
