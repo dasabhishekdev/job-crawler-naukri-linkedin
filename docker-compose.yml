@@ -1,5 +1,5 @@
 # Local stack built from source. Open http://localhost:3006
-# Production uses docker-compose.prod.yml (prebuilt images, MongoDB auth, HTTPS, backups).
+# Production uses docker-compose.prod.yml (build on VPS, MongoDB auth, edge nginx, backups).
 name: job-crawler
 
 x-app-env: &app-env

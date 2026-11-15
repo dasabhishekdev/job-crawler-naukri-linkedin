@@ -29,7 +29,7 @@ packages/db    Mongoose models + run queue helpers
 packages/ai    Cursor / OpenAI providers, key encryption
 packages/google Google sign-in, Drive and Sheets
 packages/core  Resume text extraction, date helpers
-deploy/        Caddyfile, backup script
+deploy/        Caddyfile, backup, VPS deploy (ICDS-style rsync + build)
 ```
 
 ## Run locally (Docker)
@@ -86,25 +86,25 @@ Production runs at **https://job-crawler.educoreva.com** behind the shared edge 
 Internet → Cloudflare → VPS edge-nginx (hosting) → job-crawler-web (Caddy: SPA, /api → api, /api/portals/ws → browser)
 ```
 
-Pushing to `master` runs `.github/workflows/deploy.yml`:
-1. Tests run.
-2. The `api`, `worker`, `browser` and `web` images are built and pushed to GHCR.
-3. `deploy/ship.sh` connects to the VPS over SSH, with the host key pinned, and uploads the compose file and scripts.
-4. `deploy/remote-deploy.sh` runs on the VPS: it pulls the images, restarts the stack, and waits for `api`, `browser` and `web` to report healthy. If they don't, it rolls back to the previous images.
-5. The workflow checks `https://job-crawler.educoreva.com/api/health`.
+Pushing to `master` runs `.github/workflows/ci-cd.yml` (same pattern as ICDS):
 
-The first deploy creates `~/job-crawler/.env` on the VPS. It generates `SESSION_SECRET`, `APP_ENCRYPTION_KEY` and the MongoDB credentials on the server, so they never pass through GitHub. **Back that file up:** if `APP_ENCRYPTION_KEY` is lost, stored AI keys can't be decrypted, and the MongoDB password can't change once the database exists. Later deploys keep these values. They only update the values GitHub manages: `PUBLIC_URL`, `IMAGE_PREFIX`, `IMAGE_TAG`, and `ADMIN_EMAILS`/`GOOGLE_*` when set.
+1. **Verify** — tests, web build, compose config.
+2. **Deploy** — `deploy/ci-deploy.sh` rsyncs the repo to the VPS (host key pinned) and runs `deploy/deploy.sh`.
+3. On the VPS, images are **built with Docker Compose** (not pulled from GHCR), containers restart, health is checked, and previous local image tags are restored on failure.
+4. The workflow probes `https://job-crawler.educoreva.com/api/health` (warning only if the public edge is not ready yet).
+
+The first deploy creates `~/job-crawler/.env` on the VPS from `.env.example` and generates `SESSION_SECRET`, `APP_ENCRYPTION_KEY` and MongoDB credentials there — they never pass through GitHub and are excluded from rsync. **Back that file up:** if `APP_ENCRYPTION_KEY` is lost, stored AI keys can't be decrypted, and the MongoDB password can't change once the database exists. Set `ADMIN_EMAILS` / `GOOGLE_*` in the VPS `.env` when needed.
 
 ### One-time setup
 
 1. **Hosting router:** deploy the `hosting` repo (it includes the `job-crawler.educoreva.com` route). Its `edge-nginx` creates the Docker network `web`; this deploy refuses to run without it.
-2. **VPS user:** the SSH user (e.g. `deploy`, the same one hosting uses) must be in the `docker` group. The VPS needs Docker Engine with the compose plugin, `openssl` and `flock` (standard on Ubuntu/Debian).
+2. **VPS user:** the SSH user (e.g. `deploy`, the same one hosting uses) must be in the `docker` group. The VPS needs Docker Engine with the compose plugin and `openssl`.
 3. **DNS:** in Cloudflare, add a proxied `A` record for `job-crawler` in `educoreva.com` pointing to the VPS IP. Like `icds.educoreva.com`, it runs in Flexible mode: Cloudflare serves HTTPS to visitors, and the origin speaks HTTP.
 4. **Google sign-in (optional):** add these redirect URIs to the OAuth client: `https://job-crawler.educoreva.com/api/auth/google/callback` and `https://job-crawler.educoreva.com/api/google/drive/callback`.
 
 ### GitHub repository settings
 
-Settings → Secrets and variables → Actions. The SSH values can be the same ones the `hosting` repo uses.
+Settings → Secrets and variables → Actions. The SSH values can be the same ones the `hosting` / ICDS repos use.
 
 | Kind | Name | Value |
 |------|------|-------|
@@ -112,20 +112,17 @@ Settings → Secrets and variables → Actions. The SSH values can be the same o
 | Secret | `PROD_SSH_USER` | SSH user, e.g. `deploy` |
 | Secret | `PROD_SSH_PRIVATE_KEY` | Private key for that user (its public key in `~/.ssh/authorized_keys` on the VPS) |
 | Secret | `PROD_SSH_PASSPHRASE` | Key passphrase, if the key is encrypted |
-| Variable | `PROD_SSH_KNOWN_HOSTS` | The VPS host key line(s) for `known_hosts`, verified out of band (e.g. `ssh-keyscan -H <ip>` checked against the provider console fingerprint) |
+| Secret (optional) | `JOB_CRAWLER_APP_DIR` | Absolute app path; default `$HOME/job-crawler` (not `PROD_APP_DIR` — rsync uses `--delete`) |
+| Variable | `PROD_SSH_KNOWN_HOSTS` | The VPS host key line(s) for `known_hosts`, verified out of band |
 | Variable (optional) | `PROD_SSH_PORT` | SSH port, default `22` |
-| Variable (optional) | `DEPLOY_DIR` | App directory on the VPS, default `$HOME/job-crawler` |
-| Variable (optional) | `PUBLIC_URL` | Default `https://job-crawler.educoreva.com` |
-| Variable (optional) | `ADMIN_EMAILS` | Comma-separated admin emails |
-| Variable / Secret (optional) | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | Google sign-in + Drive |
-| Variable (optional) | `VPS_PLATFORM` | `linux/amd64` (default) or `linux/arm64` |
 
-The deploy job uses the `production` environment (created automatically; add required reviewers there if you want manual approval). The built-in `GITHUB_TOKEN` pushes the images and lets the VPS pull them during the deploy. Deploys can also be started by hand: Actions → Deploy → Run workflow.
+The deploy job uses the `production` environment (add required reviewers there if you want manual approval). Deploys can also be started by hand: Actions → CI/CD → Run workflow.
 
 ### Operations
 
 ```bash
 cd ~/job-crawler
+bash deploy/deploy.sh                         # manual rebuild + restart
 docker compose -f docker-compose.prod.yml ps
 docker compose -f docker-compose.prod.yml logs -f worker
 ls backups/                                   # nightly mongodump archives, kept 14 days

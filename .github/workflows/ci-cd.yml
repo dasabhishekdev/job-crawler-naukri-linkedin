@@ -1,0 +1,82 @@
+name: CI/CD
+
+# Same pattern as ICDS: verify on every PR/push; deploy on master by rsync + build on the VPS.
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+  workflow_dispatch:
+
+concurrency:
+  group: job-crawler-ci-cd-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      mongodb:
+        image: mongo:7
+        ports: ["27017:27017"]
+        options: >-
+          --health-cmd "mongosh --quiet --eval 'db.adminCommand(\"ping\")'"
+          --health-interval 10s --health-timeout 5s --health-retries 6
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - name: Tests
+        run: npm test
+        env:
+          MONGODB_URI_TEST: mongodb://localhost:27017/jobcrawler_ci
+      - name: Build web
+        run: npm run build:web
+      - name: Shell syntax
+        run: bash -n deploy/deploy.sh deploy/ci-deploy.sh deploy/backup.sh
+      - name: Compose config
+        run: |
+          cp .env.example .env
+          sed -i 's/^SESSION_SECRET=.*/SESSION_SECRET=ci-only-secret-ci-only-secret-0000/; s/^APP_ENCRYPTION_KEY=.*/APP_ENCRYPTION_KEY=ci-encryption-key-base64-00000000/; s/^PUBLIC_URL=.*/PUBLIC_URL=https://job-crawler.educoreva.com/' .env
+          printf 'MONGO_ROOT_USER=jobcrawler\nMONGO_ROOT_PASSWORD=ci-mongo-password\n' >> .env
+          docker compose config --quiet
+          GIT_SHA=ci docker compose -f docker-compose.prod.yml config --quiet
+
+  deploy:
+    name: Deploy to VPS
+    needs: verify
+    if: github.repository == 'dasabhishekdev/job-crawler-naukri-linkedin' && github.event_name != 'pull_request' && github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    environment:
+      name: production
+      url: https://job-crawler.educoreva.com
+    env:
+      PROD_SSH_HOST: ${{ secrets.PROD_SSH_HOST }}
+      PROD_SSH_USER: ${{ secrets.PROD_SSH_USER }}
+      PROD_SSH_PRIVATE_KEY: ${{ secrets.PROD_SSH_PRIVATE_KEY }}
+      PROD_SSH_PASSPHRASE: ${{ secrets.PROD_SSH_PASSPHRASE }}
+      PROD_SSH_PORT: ${{ vars.PROD_SSH_PORT }}
+      # Deliberately not PROD_APP_DIR: deploy rsyncs with --delete, so it must never inherit another app's path.
+      JOB_CRAWLER_APP_DIR: ${{ secrets.JOB_CRAWLER_APP_DIR }}
+      PROD_SSH_KNOWN_HOSTS: ${{ vars.PROD_SSH_KNOWN_HOSTS }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Upload and build on VPS
+        run: bash deploy/ci-deploy.sh
+      - name: Public health check
+        continue-on-error: true
+        run: |
+          for i in $(seq 1 12); do
+            if curl -fsS --max-time 10 https://job-crawler.educoreva.com/api/health; then echo; exit 0; fi
+            sleep 10
+          done
+          echo "::warning::Public URL not healthy yet — containers may be up; check hosting route / Cloudflare."

@@ -1,15 +1,13 @@
-# Production stack for the VPS. Images are built and pushed by GitHub Actions (.github/workflows/deploy.yml),
-# which then runs deploy/remote-deploy.sh on the server.
-# Public traffic arrives through the shared hosting edge nginx (repo `hosting`): only `web` joins the
-# external Docker network `web`, as alias `job-crawler-web`; API, worker, browser and MongoDB stay private.
-# Manual usage on the server (in the directory holding this file and .env):
-#   docker compose -f docker-compose.prod.yml pull && docker compose -f docker-compose.prod.yml up -d
+# Production stack for the VPS. Built on the server by deploy/deploy.sh (ICDS-style),
+# after GitHub Actions rsyncs the reviewed tree via deploy/ci-deploy.sh.
+# Public traffic: hosting edge-nginx → job-crawler-web:80 on Docker network `web`.
+# Manual:  cd ~/job-crawler && GIT_SHA=manual bash deploy/deploy.sh
 name: job-crawler
 
 x-app-env: &app-env
   NODE_ENV: production
   MONGODB_URI: mongodb://${MONGO_ROOT_USER:?}:${MONGO_ROOT_PASSWORD:?}@mongodb:27017/jobportal?authSource=admin
-  PUBLIC_URL: ${PUBLIC_URL:?Set PUBLIC_URL, e.g. https://jobs.example.com}
+  PUBLIC_URL: ${PUBLIC_URL:?Set PUBLIC_URL in .env, e.g. https://job-crawler.educoreva.com}
   SESSION_SECRET: ${SESSION_SECRET:?}
   APP_ENCRYPTION_KEY: ${APP_ENCRYPTION_KEY:?}
   ADMIN_EMAILS: ${ADMIN_EMAILS:-}
@@ -23,6 +21,7 @@ x-logging: &logging
 services:
   mongodb:
     image: mongo:7
+    container_name: job-crawler-mongodb
     restart: unless-stopped
     logging: *logging
     environment:
@@ -37,7 +36,13 @@ services:
       retries: 6
 
   api:
-    image: ${IMAGE_PREFIX:?}-api:${IMAGE_TAG:-latest}
+    image: job-crawler-api:latest
+    container_name: job-crawler-api
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+      args:
+        GIT_SHA: ${GIT_SHA:-unknown}
     restart: unless-stopped
     logging: *logging
     environment:
@@ -47,7 +52,13 @@ services:
       mongodb: { condition: service_healthy }
 
   worker:
-    image: ${IMAGE_PREFIX:?}-worker:${IMAGE_TAG:-latest}
+    image: job-crawler-worker:latest
+    container_name: job-crawler-worker
+    build:
+      context: .
+      dockerfile: apps/worker/Dockerfile
+      args:
+        GIT_SHA: ${GIT_SHA:-unknown}
     restart: unless-stopped
     logging: *logging
     init: true
@@ -61,7 +72,13 @@ services:
       mongodb: { condition: service_healthy }
 
   browser:
-    image: ${IMAGE_PREFIX:?}-browser:${IMAGE_TAG:-latest}
+    image: job-crawler-browser:latest
+    container_name: job-crawler-browser
+    build:
+      context: .
+      dockerfile: apps/browser/Dockerfile
+      args:
+        GIT_SHA: ${GIT_SHA:-unknown}
     restart: unless-stopped
     logging: *logging
     init: true
@@ -73,7 +90,13 @@ services:
       mongodb: { condition: service_healthy }
 
   web:
-    image: ${IMAGE_PREFIX:?}-web:${IMAGE_TAG:-latest}
+    image: job-crawler-web:latest
+    container_name: job-crawler-web
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      args:
+        GIT_SHA: ${GIT_SHA:-unknown}
     restart: unless-stopped
     logging: *logging
     environment:
@@ -99,6 +122,7 @@ services:
 
   backup:
     image: mongo:7
+    container_name: job-crawler-backup
     restart: unless-stopped
     logging: *logging
     entrypoint: ["/bin/bash", "/backup.sh"]
@@ -106,7 +130,7 @@ services:
       MONGO_URI: mongodb://${MONGO_ROOT_USER:?}:${MONGO_ROOT_PASSWORD:?}@mongodb:27017/?authSource=admin
       BACKUP_KEEP_DAYS: ${BACKUP_KEEP_DAYS:-14}
     volumes:
-      - ./backup.sh:/backup.sh:ro
+      - ./deploy/backup.sh:/backup.sh:ro
       - ./backups:/backups
     depends_on:
       mongodb: { condition: service_healthy }
