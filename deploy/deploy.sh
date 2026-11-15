@@ -82,10 +82,16 @@ echo "==> Building images ($GIT_SHA)"
 "${COMPOSE[@]}" build --pull
 
 echo "==> Starting containers"
-"${COMPOSE[@]}" up -d --remove-orphans
+up_ok=true
+if ! "${COMPOSE[@]}" up -d --remove-orphans; then
+  up_ok=false
+  echo "==> docker compose up failed — container logs:" >&2
+  "${COMPOSE[@]}" ps -a >&2 || true
+  "${COMPOSE[@]}" logs --tail 80 api mongodb browser web worker >&2 || true
+fi
 
 echo "==> Verifying"
-if wait_healthy && smoke_test; then
+if [[ "$up_ok" == true ]] && wait_healthy && smoke_test; then
   for image in "${IMAGES[@]}"; do
     docker tag "$image:latest" "$image:$GIT_SHA"
   done
@@ -103,10 +109,11 @@ if wait_healthy && smoke_test; then
 fi
 
 echo "==> Deploy failed — rolling back" >&2
-"${COMPOSE[@]}" logs --tail 60 api web browser worker >&2 || true
+"${COMPOSE[@]}" ps -a >&2 || true
+"${COMPOSE[@]}" logs --tail 80 api mongodb web browser worker >&2 || true
 if [[ "$had_previous" == true ]]; then
   for image in "${IMAGES[@]}"; do docker tag "$image:previous" "$image:latest"; done
-  "${COMPOSE[@]}" up -d --no-build --force-recreate api web browser worker
+  "${COMPOSE[@]}" up -d --no-build --force-recreate api web browser worker || true
   wait_healthy && echo "Rolled back to previous images." >&2
 fi
 exit 1

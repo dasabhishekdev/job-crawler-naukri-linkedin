@@ -48,6 +48,13 @@ services:
     environment:
       <<: *app-env
       TRUST_PROXY_HOPS: ${TRUST_PROXY_HOPS:-2}
+    # API connects to Mongo before listen; give it time before depends_on fails.
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 60s
     depends_on:
       mongodb: { condition: service_healthy }
 
@@ -86,6 +93,12 @@ services:
     environment:
       <<: *app-env
       MAX_LOGIN_SESSIONS: ${MAX_LOGIN_SESSIONS:-3}
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:5100/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 60s
     depends_on:
       mongodb: { condition: service_healthy }
 
