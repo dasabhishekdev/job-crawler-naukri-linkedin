@@ -45,7 +45,11 @@ jobs:
       - name: Compose config
         run: |
           cp .env.example .env
-          sed -i 's/^SESSION_SECRET=.*/SESSION_SECRET=ci-only-secret-ci-only-secret-0000/; s/^APP_ENCRYPTION_KEY=.*/APP_ENCRYPTION_KEY=ci-encryption-key-base64-00000000/; s/^PUBLIC_URL=.*/PUBLIC_URL=https://job-crawler.educoreva.com/' .env
+          sed -i \
+            -e 's|^SESSION_SECRET=.*|SESSION_SECRET=ci-only-secret-ci-only-secret-0000|' \
+            -e 's|^APP_ENCRYPTION_KEY=.*|APP_ENCRYPTION_KEY=ci-encryption-key-base64-00000000|' \
+            -e 's|^PUBLIC_URL=.*|PUBLIC_URL=https://job-crawler.educoreva.com|' \
+            .env
           printf 'MONGO_ROOT_USER=jobcrawler\nMONGO_ROOT_PASSWORD=ci-mongo-password\n' >> .env
           docker compose config --quiet
           GIT_SHA=ci docker compose -f docker-compose.prod.yml config --quiet
