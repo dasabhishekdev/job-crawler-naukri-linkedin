@@ -37,20 +37,32 @@ env_set() {
 ensure_secret() { [[ -n "$(env_get "$1")" ]] || { env_set "$1" "$2"; echo "Generated $1 in $ROOT/.env"; }; }
 
 # APP_ENCRYPTION_KEY must decode to exactly 32 bytes (aes-256-gcm). Placeholder
-# values in .env.prod used to slip through ensure_secret and break AI key saves.
+# values used to slip through ensure_secret and break AI key saves.
+# Use python3/openssl — the VPS host often has no node on PATH.
 encryption_key_ok() {
   local raw="$1"
   [[ -n "$raw" ]] || return 1
-  node -e '
-    const raw = process.argv[1] || "";
-    let key;
-    try {
-      key = /^[0-9a-f]{64}$/i.test(raw) ? Buffer.from(raw, "hex") : Buffer.from(raw, "base64");
-    } catch {
-      process.exit(1);
-    }
-    process.exit(key.length === 32 ? 0 : 1);
-  ' "$raw"
+  if [[ "$raw" =~ ^[0-9a-fA-F]{64}$ ]]; then
+    return 0
+  fi
+  if command -v python3 >/dev/null 2>&1; then
+    ENCRYPTION_KEY_CANDIDATE="$raw" python3 - <<'PY'
+import base64, os, sys
+raw = os.environ.get("ENCRYPTION_KEY_CANDIDATE", "")
+try:
+    key = base64.b64decode(raw, validate=True)
+except Exception:
+    try:
+        key = base64.b64decode(raw + "=" * (-len(raw) % 4))
+    except Exception:
+        sys.exit(1)
+sys.exit(0 if len(key) == 32 else 1)
+PY
+    return $?
+  fi
+  local decoded
+  decoded="$(printf '%s' "$raw" | openssl base64 -d -A 2>/dev/null | wc -c | tr -d ' ')"
+  [[ "$decoded" == "32" ]]
 }
 
 umask 077
