@@ -29,7 +29,21 @@ async function verifyProviderKey(provider, apiKey) {
   const api = providerApi(provider);
   return wrap(provider, async () => {
     const info = await api.verifyKey(apiKey);
-    const models = await api.listModels(apiKey);
+    let models;
+    try {
+      models = await api.listModels(apiKey);
+    } catch (err) {
+      const classified = classifyAiError(err, provider);
+      if (classified instanceof AiKeyError) throw classified;
+      const priced = Object.keys(PRICES[provider] || {});
+      models = priced.map((id) => ({
+        id,
+        label: id,
+        description: id === api.defaultModel ? "Recommended" : "",
+        ...modelInfo(provider, id),
+      }));
+      if (!models.length) throw classified;
+    }
     return { ...info, models };
   });
 }

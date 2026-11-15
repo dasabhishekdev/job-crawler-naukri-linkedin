@@ -36,6 +36,23 @@ env_set() {
 }
 ensure_secret() { [[ -n "$(env_get "$1")" ]] || { env_set "$1" "$2"; echo "Generated $1 in $ROOT/.env"; }; }
 
+# APP_ENCRYPTION_KEY must decode to exactly 32 bytes (aes-256-gcm). Placeholder
+# values in .env.prod used to slip through ensure_secret and break AI key saves.
+encryption_key_ok() {
+  local raw="$1"
+  [[ -n "$raw" ]] || return 1
+  node -e '
+    const raw = process.argv[1] || "";
+    let key;
+    try {
+      key = /^[0-9a-f]{64}$/i.test(raw) ? Buffer.from(raw, "hex") : Buffer.from(raw, "base64");
+    } catch {
+      process.exit(1);
+    }
+    process.exit(key.length === 32 ? 0 : 1);
+  ' "$raw"
+}
+
 umask 077
 if [[ ! -f .env ]]; then
   echo "==> Creating .env from .env.example (secrets stay on this server only)"
@@ -44,6 +61,10 @@ if [[ ! -f .env ]]; then
 fi
 ensure_secret SESSION_SECRET "$(openssl rand -hex 32)"
 ensure_secret APP_ENCRYPTION_KEY "$(openssl rand -base64 32)"
+if ! encryption_key_ok "$(env_get APP_ENCRYPTION_KEY)"; then
+  echo "==> APP_ENCRYPTION_KEY is invalid (not 32 bytes) — regenerating. Re-enter any saved AI keys after deploy."
+  env_set APP_ENCRYPTION_KEY "$(openssl rand -base64 32)"
+fi
 ensure_secret MONGO_ROOT_USER jobcrawler
 ensure_secret MONGO_ROOT_PASSWORD "$(openssl rand -hex 24)"
 # Production public URL — keep any value already set in .env.

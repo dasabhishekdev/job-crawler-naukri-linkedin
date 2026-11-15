@@ -4,7 +4,7 @@ const path = require("path");
 const { Agent, Cursor, CursorAgentError } = require("@cursor/sdk");
 const { AiKeyError } = require("../errors");
 const { createNarrator } = require("../narration");
-const { modelInfo } = require("../pricing");
+const { modelInfo, PRICES } = require("../pricing");
 
 const WEB_TOOLS = ["webSearch", "webFetch"];
 const SEARCH_ONLY = ["webSearch"];
@@ -16,20 +16,46 @@ function workspaceDir() {
   return dir;
 }
 
+function cursorAuthHeaders(apiKey) {
+  return { authorization: `Basic ${Buffer.from(`${apiKey}:`).toString("base64")}` };
+}
+
 async function verifyKey(apiKey) {
-  const res = await fetch("https://api.cursor.com/v1/me", {
-    headers: { authorization: `Basic ${Buffer.from(`${apiKey}:`).toString("base64")}` },
-    signal: AbortSignal.timeout(20000),
-  });
+  let res;
+  try {
+    res = await fetch("https://api.cursor.com/v1/me", {
+      headers: cursorAuthHeaders(apiKey),
+      signal: AbortSignal.timeout(20000),
+    });
+  } catch (err) {
+    throw Object.assign(new Error(err?.message || "fetch failed"), { cause: err });
+  }
   if (res.status === 401 || res.status === 403) throw new AiKeyError("cursor", `HTTP ${res.status}`);
   if (!res.ok) throw new Error(`Cursor API returned HTTP ${res.status}`);
   const me = await res.json();
   return { account: me.userEmail || "" };
 }
 
+function fallbackModels() {
+  return Object.keys(PRICES.cursor || {}).map((id) => ({
+    id,
+    label: id,
+    description: id === DEFAULT_MODEL ? "Recommended" : "",
+    ...modelInfo("cursor", id),
+  }));
+}
+
 async function listModels(apiKey) {
-  const models = await Cursor.models.list({ apiKey });
-  return models.map((m) => ({ id: m.id, label: m.displayName || m.id, description: m.description || "", ...modelInfo("cursor", m.id) }));
+  try {
+    const models = await Cursor.models.list({ apiKey });
+    if (models?.length) {
+      return models.map((m) => ({ id: m.id, label: m.displayName || m.id, description: m.description || "", ...modelInfo("cursor", m.id) }));
+    }
+  } catch (err) {
+    const status = err?.status || err?.statusCode;
+    if (status === 401 || status === 403) throw err;
+  }
+  return fallbackModels();
 }
 
 function normalizeUsage(u) {

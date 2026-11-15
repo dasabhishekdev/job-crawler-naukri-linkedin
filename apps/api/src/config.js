@@ -8,6 +8,15 @@ function required(name, { minLength = 1 } = {}) {
   return value;
 }
 
+function requireEncryptionKey() {
+  const raw = required("APP_ENCRYPTION_KEY");
+  const key = /^[0-9a-f]{64}$/i.test(raw) ? Buffer.from(raw, "hex") : Buffer.from(raw, "base64");
+  if (key.length !== 32) {
+    throw new Error("APP_ENCRYPTION_KEY must be 32 bytes (base64 or 64 hex chars). Generate one with: openssl rand -base64 32");
+  }
+  return true;
+}
+
 function loadConfig() {
   const publicUrl = (process.env.PUBLIC_URL || "http://localhost:3006").replace(/\/+$/, "");
   const extraOrigins = (process.env.ALLOWED_ORIGINS || "").split(",").map((s) => s.trim()).filter(Boolean);
@@ -24,7 +33,7 @@ function loadConfig() {
     adminEmails: new Set(
       (process.env.ADMIN_EMAILS || "").split(",").map((s) => s.trim().toLowerCase()).filter(Boolean)
     ),
-    encryptionKeySet: Boolean(required("APP_ENCRYPTION_KEY")),
+    encryptionKeySet: requireEncryptionKey(),
   };
 }
 

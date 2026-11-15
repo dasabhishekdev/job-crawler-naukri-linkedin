@@ -21,6 +21,13 @@ function errorHandler(err, req, res, _next) {
   if (err?.type === "entity.too.large") return res.status(413).json({ error: "Request is too large." });
   if (err?.type === "entity.parse.failed") return res.status(400).json({ error: "Invalid JSON." });
   if (err?.name === "CastError") return res.status(404).json({ error: "Not found." });
+  if (/APP_ENCRYPTION_KEY/.test(err?.message || "")) {
+    console.error(`[api] ${req.method} ${req.originalUrl}:`, err.message);
+    return res.status(503).json({ error: "Server encryption is misconfigured. Fix APP_ENCRYPTION_KEY on the host and redeploy." });
+  }
+  if (/Could not reach /.test(err?.message || "")) {
+    return res.status(502).json({ error: err.message });
+  }
 
   console.error(`[api] ${req.method} ${req.originalUrl}:`, err);
   res.status(500).json({ error: "Something went wrong. Please try again." });
