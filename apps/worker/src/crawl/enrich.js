@@ -1,5 +1,7 @@
 const { parseJobPostingJsonLd, stripHtml } = require("@jobportal/portals");
 const { recordVisit } = require("./memory");
+const { extractOfficialApplyUrl, isAggregatorUrl, isGenuineUrl } = require("./sources");
+const { normalizeUrl } = require("./normalize");
 
 const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
 const MIN_DESCRIPTION = 300;
@@ -47,13 +49,14 @@ async function fetchPage(url) {
 }
 
 /**
- * Opens each web-search result once (no AI): drops dead links (404/410) and fills in missing
- * descriptions from the page so scoring has real requirements to work with.
+ * Opens each web-search result once (no AI): drops dead links (404/410), fills missing
+ * descriptions, and rewrites aggregator mirrors to the employer's official apply URL when linked.
  */
 async function enrichJobs(records, { userId, log, concurrency = 6 }) {
   const alive = [];
   let dead = 0;
   let enriched = 0;
+  let resolved = 0;
   let next = 0;
   const todo = records.slice(0, MAX_PAGES);
   async function worker() {
@@ -65,14 +68,43 @@ async function enrichJobs(records, { userId, log, concurrency = 6 }) {
         await recordVisit(userId, rec.job_url, { kind: "job", status: "not_found" });
         continue;
       }
-      if (page.html && String(rec.description || "").length < MIN_DESCRIPTION) {
-        const info = extractFromHtml(page.html);
-        if (info.description.length > String(rec.description || "").length) {
-          rec.description = info.description;
-          enriched++;
+      if (page.html) {
+        if (String(rec.description || "").length < MIN_DESCRIPTION) {
+          const info = extractFromHtml(page.html);
+          if (info.description.length > String(rec.description || "").length) {
+            rec.description = info.description;
+            enriched++;
+          }
+          rec.location = rec.location || info.location;
+          rec.posted = rec.posted || info.posted;
+          rec.company = rec.company || info.company;
+          rec.title = rec.title || info.title;
         }
-        rec.location = rec.location || info.location;
-        rec.posted = rec.posted || info.posted;
+        if (isAggregatorUrl(rec.job_url)) {
+          const official = extractOfficialApplyUrl(page.html, page.finalUrl || rec.job_url);
+          if (official && isGenuineUrl(official)) {
+            rec.aggregator_url = rec.job_url;
+            rec.job_url = official;
+            rec.apply_url = official;
+            rec.source = "career_page";
+            rec.source_site = String(rec.source_site || "").replace(/\s*$/, "") || "company careers";
+            if (!/careers|ats|official/i.test(rec.source_site)) {
+              try {
+                rec.source_site = new URL(official).hostname.replace(/^www\./, "");
+              } catch {
+                rec.source_site = "company careers";
+              }
+            }
+            resolved++;
+          }
+        }
+      }
+      if (page.finalUrl && !isAggregatorUrl(page.finalUrl) && isAggregatorUrl(rec.job_url) && isGenuineUrl(page.finalUrl)) {
+        rec.aggregator_url = rec.job_url;
+        rec.job_url = normalizeUrl(page.finalUrl);
+        rec.apply_url = rec.job_url;
+        rec.source = "career_page";
+        resolved++;
       }
       await recordVisit(userId, rec.job_url, { kind: "job", status: page.status && page.status < 400 ? "ok" : page.status === 403 ? "blocked" : "error", jobs: 1 });
       alive.push(rec);
@@ -80,8 +112,12 @@ async function enrichJobs(records, { userId, log, concurrency = 6 }) {
   }
   await Promise.all(Array.from({ length: Math.min(concurrency, todo.length) }, worker));
   alive.push(...records.slice(MAX_PAGES));
-  if (log && (dead || enriched)) await log.info(`Read ${todo.length} job pages: ${enriched} descriptions added, ${dead} dead links dropped`);
-  return { alive, dead, enriched };
+  if (log && (dead || enriched || resolved)) {
+    await log.info(
+      `Read ${todo.length} job pages: ${enriched} descriptions added, ${resolved} rewritten to company/ATS links, ${dead} dead links dropped`
+    );
+  }
+  return { alive, dead, enriched, resolved };
 }
 
 module.exports = { enrichJobs, extractFromHtml, isDeadStatus };

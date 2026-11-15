@@ -2,12 +2,18 @@ const { JobPosting, Profile, JOB_SOURCES } = require("@jobportal/db");
 const { syncUserSheet } = require("@jobportal/google");
 const { searchWeb, crawlCareerPages } = require("../crawl/discovery");
 const { ensurePlan, pickQueries, recordYield, queryKey } = require("../crawl/planner");
-const { discoverCompanies, findCareersPage } = require("../crawl/companies");
+const { discoverCompanies, findCareersPage, normalizeCompanies, registrableDomain } = require("../crawl/companies");
 const { detectBoard, detectBoardFromHtml } = require("../crawl/career-boards");
 const { enrichJobs } = require("../crawl/enrich");
 const { recordVisit } = require("../crawl/memory");
 const { scoreJobs } = require("../crawl/score");
-const { normalizeUrl, dedupeKey, isBlocked, matchesLocation, postedAgeDays } = require("../crawl/normalize");
+const { normalizeUrl, dedupeKey, isBlocked, matchesLocation, postedAgeDays, slug } = require("../crawl/normalize");
+const {
+  companiesFromAggregatorJobs,
+  preferGenuineJobs,
+  isAggregatorUrl,
+  isGenuineUrl,
+} = require("../crawl/sources");
 const { getBrowser } = require("../browser");
 const { contextOptions } = require("@jobportal/portals");
 const { withAi, loadResumeAndProfile } = require("./shared");
@@ -17,19 +23,24 @@ const RESCORE_WINDOW_DAYS = 7;
 const GOOD_MATCH = 70;
 const DISCOVERY_EVERY_MS = 24 * 3600 * 1000;
 const COMPANIES_PER_DISCOVERY = 12;
+const AGGREGATOR_COMPANIES_PER_RUN = 8;
 
 /** Normalises one discovered posting, or returns `{ skip: reason }` when it fails the user's filters. */
-function toRecord(raw, { profile, maxAgeDays }) {
+function toRecord(raw, { profile, maxAgeDays, dropAggregators = false }) {
   const title = String(raw.title || "").trim();
   const company = String(raw.company || "").trim();
-  const url = normalizeUrl(raw.apply_url || raw.url);
+  const url = normalizeUrl(raw.apply_url || raw.job_url || raw.url);
   if (!title || !company || !url) return { skip: "missing details" };
+  if (dropAggregators && isAggregatorUrl(url) && !isGenuineUrl(url)) return { skip: "job board mirror" };
   if (isBlocked(company, profile.exclude_companies)) return { skip: "excluded company" };
   if (!matchesLocation(raw.location, profile.target_locations, profile.remote_ok)) return { skip: "location" };
   const age = postedAgeDays(raw.posted);
   if (age !== null && age > maxAgeDays) return { skip: "too old" };
+  let source = JOB_SOURCES.includes(raw.source) ? raw.source : "web";
+  // Employer careers / ATS links found via web search should not stay labeled as generic "web".
+  if (source === "web" && isGenuineUrl(url)) source = "career_page";
   return {
-    source: JOB_SOURCES.includes(raw.source) ? raw.source : "web",
+    source,
     source_site: String(raw.source_site || "").slice(0, 80),
     job_url: url,
     title: title.slice(0, 200),
@@ -42,6 +53,43 @@ function toRecord(raw, { profile, maxAgeDays }) {
     dedupe_key: dedupeKey(company, title),
     search_query: raw.found_by ? String(raw.found_by).slice(0, 120) : undefined,
   };
+}
+
+/** Turns aggregator hits (Apna/Naukri/…) into target companies so we crawl their real careers pages. */
+async function harvestCompaniesFromAggregators({ jobs, profile, userId, log, browser, ai }) {
+  const harvested = companiesFromAggregatorJobs(jobs).slice(0, AGGREGATOR_COMPANIES_PER_RUN);
+  if (!harvested.length) return 0;
+
+  const knownNames = new Set((profile.career_pages || []).map((p) => slug(p.name)));
+  const knownDomains = new Set((profile.career_pages || []).map((p) => registrableDomain(p.url)).filter(Boolean));
+  let candidates = harvested.filter((c) => !knownNames.has(slug(c.name)));
+  if (!candidates.length) return 0;
+
+  const needSearch = candidates.filter((c) => !c.website && !c.url);
+  if (needSearch.length && ai) {
+    const queries = needSearch.slice(0, 4).map((c) => `${c.name} official careers page`);
+    const found = await discoverCompanies({ ai, profile, queries, max: needSearch.length, log }).catch(() => []);
+    const byName = new Map(found.map((c) => [slug(c.name), c]));
+    candidates = candidates.map((c) => {
+      const hit = byName.get(slug(c.name));
+      return hit ? { ...c, website: hit.website || c.website, url: hit.url || c.url } : c;
+    });
+  }
+
+  candidates = normalizeCompanies(candidates, { knownDomains, knownNames }).slice(0, AGGREGATOR_COMPANIES_PER_RUN);
+  if (!candidates.length) {
+    await log.info(`Job boards mentioned ${harvested.length} employers already on your company list`);
+    return 0;
+  }
+
+  const context = await browser.newContext(contextOptions({ mobile: false }));
+  try {
+    const added = await addVerifiedCompanies({ candidates, profile, userId, log, context });
+    if (added) await log.info(`Followed job-board mentions to ${added} official careers page${added === 1 ? "" : "s"}`);
+    return added;
+  } finally {
+    await context.close().catch(() => {});
+  }
 }
 
 /** Stores records that are not already known (by URL or company+title); returns the created records. */
@@ -169,6 +217,7 @@ async function crawlTask(ctx) {
     await checkCancel();
 
     const raw = [];
+    let browser = null;
     if (settings.web_search) {
       await stage("search", "Searching the web");
       const found = await step(log, "Web search", () =>
@@ -178,17 +227,22 @@ async function crawlTask(ctx) {
         await stage("read", "Reading job pages");
         const records = found
           .map((r) => ({ ...r, job_url: normalizeUrl(r.apply_url || r.url) }))
-          .filter((r) => r.job_url && !isBlocked(r.company, profile.exclude_companies));
-        const { alive } = await enrichJobs(records, { userId: user._id, log });
-        raw.push(...alive);
+          .filter((r) => (r.job_url || r.company) && !isBlocked(r.company, profile.exclude_companies));
+        const withUrls = records.filter((r) => r.job_url);
+        const { alive } = await enrichJobs(withUrls, { userId: user._id, log });
+        // Keep company-only hints (no URL) so we can still open their careers pages.
+        raw.push(...alive, ...records.filter((r) => !r.job_url && r.company));
       }
     }
     await checkCancel();
 
     if (settings.career_pages) {
+      browser = await getBrowser();
       await stage("discover", "Finding companies and career pages");
-      const browser = await getBrowser();
       await step(log, "Company discovery", () => discoverAndAddCompanies({ ai, profile, settings, userId: user._id, log, browser }));
+      await step(log, "Follow job-board companies", () =>
+        harvestCompaniesFromAggregators({ jobs: raw, profile, userId: user._id, log, browser, ai })
+      );
       await saveCareerPages(profile);
       await stage("careers", "Crawling company career pages");
       try {
@@ -201,7 +255,20 @@ async function crawlTask(ctx) {
       }
     }
 
-    const result = await ingestJobs({ ai, raw, user, profile, resume, run, log, stage, count, checkCancel });
+    const preferred = preferGenuineJobs(raw.filter((r) => r.job_url || r.apply_url || r.url));
+    const result = await ingestJobs({
+      ai,
+      raw: preferred,
+      user,
+      profile,
+      resume,
+      run,
+      log,
+      stage,
+      count,
+      checkCancel,
+      dropAggregators: Boolean(settings.career_pages),
+    });
 
     const stats = new Map(jobQueries.map((q) => [q.key, { results: 0, new_jobs: 0, good_matches: 0 }]));
     for (const r of raw) if (r.found_by && stats.has(r.found_by)) stats.get(r.found_by).results++;
@@ -216,12 +283,12 @@ async function crawlTask(ctx) {
 }
 
 /** Filters, de-duplicates, stores and scores discovered postings, then syncs the sheet. Shared by all crawl kinds. */
-async function ingestJobs({ ai, raw, user, profile, resume, run, log, stage, count, checkCancel }) {
+async function ingestJobs({ ai, raw, user, profile, resume, run, log, stage, count, checkCancel, dropAggregators = false }) {
   const settings = user.crawler;
   const records = [];
   const skipped = {};
   for (const r of raw) {
-    const rec = toRecord(r, { profile, maxAgeDays: settings.max_job_age_days });
+    const rec = toRecord(r, { profile, maxAgeDays: settings.max_job_age_days, dropAggregators });
     if (rec.skip) skipped[rec.skip] = (skipped[rec.skip] || 0) + 1;
     else records.push(rec);
   }

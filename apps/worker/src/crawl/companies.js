@@ -38,7 +38,8 @@ function normalizeCompanies(items, { knownDomains = new Set(), knownNames = new 
   return out;
 }
 
-const NOT_CAREERS_HOSTS = /(^|\.)(twitter|x|linkedin|facebook|instagram|youtube|glassdoor|naukri|indeed|ambitionbox)\.com$/i;
+const NOT_CAREERS_HOSTS =
+  /(^|\.)(twitter|x|linkedin|facebook|instagram|youtube|glassdoor|naukri|indeed|ambitionbox|apna|shine|foundit|hirist|instahyre|cutshort|timesjobs|monsterindia|internshala|wellfound|angel)\.(com|co|in|io|app|tech)$/i;
 
 function careersLinkScore(text, href) {
   const s = `${text} ${href}`.toLowerCase();
@@ -118,7 +119,7 @@ ${queries.map((q, i) => `${i + 1}. ${q}`).join("\n")}
 
 Rules:
 - Up to ${max} companies with real operations and open hiring in these cities.
-- website is the company's main site. careers_url only if its own careers page or applicant-tracking page (Greenhouse, Lever, Workday, SmartRecruiters, Darwinbox, Keka, etc.) appeared in the results; otherwise leave it empty — we find it ourselves. Never a job board like Naukri, LinkedIn or Indeed.
+- website is the company's main site. careers_url only if its own careers page or applicant-tracking page (Greenhouse, Lever, Workday, SmartRecruiters, Darwinbox, Keka, etc.) appeared in the results; otherwise leave it empty — we find it ourselves. Never a job board like Naukri, LinkedIn, Indeed, Apna, Glassdoor, Shine or Foundit.
 - Skip: ${exclude.slice(0, 60).join(", ") || "none"}.
 
 Return ONLY a JSON array: [{"name":"","website":"","careers_url":"","why":"one short phrase on why this company fits"}]`;

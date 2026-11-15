@@ -51,10 +51,16 @@ const SEARCH_JSON_SHAPE =
 /** Every extra agent turn re-sends all earlier results, so the prompt asks for exactly one search. */
 function webSearchPrompt({ query, profile, settings }) {
   return `Make exactly ONE web search for: ${query}
+Prefer queries that find employer careers pages, e.g. add words like "careers" or "jobs site:greenhouse.io OR site:lever.co OR site:myworkdayjobs.com", and avoid job-board domains.
 Then answer straight away from those results. Do not refine, verify or open pages; dates, location and experience are checked separately.
 
 Return up to ${settings.jobs_per_search} job postings that look currently open and relevant to: ${uniqueRoles(profile).slice(0, 6).join("; ")} in ${locationPhrase(profile)}.
-Prefer links to the company's own careers page or ATS posting over job boards. Skip search pages and lists of many jobs.
+
+Source rules (strict):
+- Prefer the company's OWN careers page or ATS posting (Greenhouse, Lever, Ashby, Workday, SmartRecruiters, Darwinbox, Keka, etc.).
+- Do NOT return Naukri, Indeed, LinkedIn, Apna, Glassdoor, Shine, Foundit, Hirist, Instahyre, Cutshort, TimesJobs or Internshala listing URLs.
+- If search only shows a job board hit (e.g. Apna listing Flipkart), still include the company name but leave apply_url empty (or the company careers URL if you know it) — never the job-board link. We look up the official careers page ourselves.
+- Skip search pages and multi-job listing pages.
 
 Return ONLY a JSON array (no prose), [] if nothing fits. Each item: ${SEARCH_JSON_SHAPE}`;
 }

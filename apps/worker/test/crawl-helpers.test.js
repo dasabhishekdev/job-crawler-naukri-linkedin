@@ -72,6 +72,11 @@ test("toRecord reports why a posting was skipped", () => {
   assert.equal(toRecord({ ...base, location: "Mumbai" }, { profile, maxAgeDays: 14 }).skip, "location");
   assert.equal(toRecord({ ...base, posted: "30 days ago" }, { profile, maxAgeDays: 14 }).skip, "too old");
   assert.equal(toRecord({ ...base, apply_url: "" }, { profile, maxAgeDays: 14 }).skip, "missing details");
+  assert.equal(
+    toRecord({ ...base, apply_url: "https://apna.co/job/1" }, { profile, maxAgeDays: 14, dropAggregators: true }).skip,
+    "job board mirror"
+  );
+  assert.equal(toRecord({ ...base, apply_url: "https://jobs.lever.co/acme/1", source: "web" }, { profile, maxAgeDays: 14 }).source, "career_page");
 });
 
 test("postedAgeDays reads relative text and ISO dates", () => {

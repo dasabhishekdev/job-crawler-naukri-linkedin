@@ -72,8 +72,8 @@ Return JSON:
 {"job_queries":[{"q":"","why":""}],"company_queries":[{"q":"","why":""}]}
 
 Rules:
-- 24 job_queries, each 2-7 words, as a person would type into Google or a job board. Mix: exact target titles; alternative/adjacent titles used in Indian companies; skill-led queries ("SAP Ariba procurement jobs"); domain/industry queries ("quick commerce supply chain jobs"); seniority variants that fit ~${profile.experience_years || 0} years. Include the city in about half.
-- 8 company_queries that discover employers likely to hire this person in these cities (industries, company types, well-known employers), e.g. "quick commerce companies Bengaluru", "FMCG companies with procurement teams Bengaluru".
+- 24 job_queries, each 2-7 words. Bias toward OFFICIAL employer postings, not job boards. Mix: exact target titles + "careers"; company-name + role ("Flipkart supply chain careers"); ATS-oriented ("Workday procurement analyst India"); skill-led ("SAP Ariba procurement jobs"); industry ("quick commerce supply chain jobs"); seniority for ~${profile.experience_years || 0} years. Include the city in about half. Avoid queries that only return Naukri/Indeed/Apna/LinkedIn mirrors.
+- 8 company_queries that discover employers likely to hire this person in these cities (industries, company types, well-known employers), e.g. "quick commerce companies Bengaluru careers", "FMCG companies with procurement teams Bengaluru".
 - No duplicates or near-duplicates. "why" is one short phrase.`;
 }
 
