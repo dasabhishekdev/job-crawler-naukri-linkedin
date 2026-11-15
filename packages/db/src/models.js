@@ -283,7 +283,7 @@ const searchQuerySchema = new Schema(
     text: { type: String, required: true, trim: true },
     key: { type: String, required: true },
     why: String,
-    origin: { type: String, enum: ["plan", "user"], default: "plan" },
+    origin: { type: String, enum: ["plan", "user", "mint"], default: "plan" },
     uses: { type: Number, default: 0 },
     results: { type: Number, default: 0 },
     new_jobs: { type: Number, default: 0 },

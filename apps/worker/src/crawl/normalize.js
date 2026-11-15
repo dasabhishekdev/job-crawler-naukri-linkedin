@@ -107,11 +107,7 @@ function htmlToText(html) {
 function postedAgeDays(posted, now = new Date()) {
   const text = String(posted || "").trim();
   if (!text) return null;
-  const relative = parsePostedAgeDays(text);
-  if (relative !== null) return relative;
-  const ts = Date.parse(text);
-  if (Number.isNaN(ts)) return null;
-  return Math.max(0, Math.floor((now.getTime() - ts) / 86400000));
+  return parsePostedAgeDays(text, now);
 }
 
 module.exports = {

@@ -12,8 +12,15 @@ test("extractFromHtml prefers JobPosting structured data", () => {
     company: "Acme",
     location: "Bengaluru",
     posted: "2026-11-10",
+    valid_through: "",
     description: "Manage vendors and POs",
+    expired: false,
   });
+});
+
+test("extractFromHtml marks closed postings as expired", () => {
+  const html = `<html><body><main><h1>Buyer</h1><p>This job is no longer available. The position has been filled.</p></main></body></html>`;
+  assert.equal(extractFromHtml(html).expired, true);
 });
 
 test("extractFromHtml falls back to the main content without scripts or navigation", () => {

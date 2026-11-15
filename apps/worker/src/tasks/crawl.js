@@ -1,7 +1,8 @@
 const { JobPosting, Profile, JOB_SOURCES } = require("@jobportal/db");
 const { syncUserSheet } = require("@jobportal/google");
 const { searchWeb, crawlCareerPages } = require("../crawl/discovery");
-const { ensurePlan, pickQueries, recordYield, queryKey } = require("../crawl/planner");
+const { ensurePlan, mintFreshQueries, pickQueries, recordYield, queryKey } = require("../crawl/planner");
+const { validateJobsOpen } = require("../crawl/validate");
 const { discoverCompanies, findCareersPage, normalizeCompanies, registrableDomain } = require("../crawl/companies");
 const { detectBoard, detectBoardFromHtml } = require("../crawl/career-boards");
 const { enrichJobs } = require("../crawl/enrich");
@@ -213,6 +214,7 @@ async function crawlTask(ctx) {
 
     await stage("plan", "Planning search keywords");
     await step(log, "Planning", () => ensurePlan({ ai, profile, userId: user._id, log }));
+    await step(log, "Fresh keywords", () => mintFreshQueries({ ai, profile, userId: user._id, log }));
     const jobQueries = await pickQueries(user._id, "jobs", settings.searches_per_run * 3);
     await checkCancel();
 
@@ -256,9 +258,14 @@ async function crawlTask(ctx) {
     }
 
     const preferred = preferGenuineJobs(raw.filter((r) => r.job_url || r.apply_url || r.url));
+    await stage("validate", "Confirming jobs are still open");
+    const validated =
+      (await step(log, "Freshness validation", () =>
+        validateJobsOpen({ ai, jobs: preferred, maxAgeDays: settings.max_job_age_days, log })
+      )) || { open: preferred, dropped: 0 };
     const result = await ingestJobs({
       ai,
-      raw: preferred,
+      raw: validated.open,
       user,
       profile,
       resume,

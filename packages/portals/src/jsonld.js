@@ -51,6 +51,7 @@ function parseJobPostingJsonLd(scriptTexts) {
       company: String(job.hiringOrganization?.name || "").trim(),
       location: locationOf(job.jobLocation),
       posted: job.datePosted || "",
+      valid_through: job.validThrough || job.validThru || "",
       description: stripHtml(job.description).slice(0, 6000),
       experience: Number.isFinite(months) && months > 0 ? `${Math.round(months / 12)}+ years` : "",
     };

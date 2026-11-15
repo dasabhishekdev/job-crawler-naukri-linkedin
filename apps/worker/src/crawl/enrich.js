@@ -2,6 +2,7 @@ const { parseJobPostingJsonLd, stripHtml } = require("@jobportal/portals");
 const { recordVisit } = require("./memory");
 const { extractOfficialApplyUrl, isAggregatorUrl, isGenuineUrl } = require("./sources");
 const { normalizeUrl } = require("./normalize");
+const { looksExpiredText, isPastValidThrough } = require("./freshness-signals");
 
 const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
 const MIN_DESCRIPTION = 300;
@@ -21,18 +22,30 @@ function extractFromHtml(html) {
   const scripts = [...html.matchAll(/<script[^>]+application\/ld\+json[^>]*>([\s\S]*?)<\/script>/gi)].map((m) => m[1]);
   const ld = parseJobPostingJsonLd(scripts);
   if (ld?.description) {
-    return { title: ld.title, company: ld.company, location: ld.location, posted: ld.posted, description: ld.description };
+    return {
+      title: ld.title,
+      company: ld.company,
+      location: ld.location,
+      posted: ld.posted,
+      valid_through: ld.valid_through || "",
+      description: ld.description,
+      expired: isPastValidThrough(ld.valid_through) || looksExpiredText(ld.description),
+    };
   }
   const cleaned = html
     .replace(/<(script|style|noscript|svg|nav|header|footer|form)[\s\S]*?<\/\1>/gi, " ")
     .replace(/<!--[\s\S]*?-->/g, " ");
   const main = pick(cleaned, /<main[^>]*>([\s\S]*?)<\/main>/i) || pick(cleaned, /<article[^>]*>([\s\S]*?)<\/article>/i) || pick(cleaned, /<body[^>]*>([\s\S]*?)<\/body>/i);
+  const description = stripHtml(main).slice(0, 6000);
+  const title = stripHtml(pick(cleaned, /<h1[^>]*>([\s\S]*?)<\/h1>/i)).slice(0, 200);
   return {
-    title: stripHtml(pick(cleaned, /<h1[^>]*>([\s\S]*?)<\/h1>/i)).slice(0, 200),
+    title,
     company: "",
     location: "",
     posted: "",
-    description: stripHtml(main).slice(0, 6000),
+    valid_through: "",
+    description,
+    expired: looksExpiredText(`${title}\n${description}`),
   };
 }
 
@@ -55,6 +68,7 @@ async function fetchPage(url) {
 async function enrichJobs(records, { userId, log, concurrency = 6 }) {
   const alive = [];
   let dead = 0;
+  let expired = 0;
   let enriched = 0;
   let resolved = 0;
   let next = 0;
@@ -69,17 +83,20 @@ async function enrichJobs(records, { userId, log, concurrency = 6 }) {
         continue;
       }
       if (page.html) {
-        if (String(rec.description || "").length < MIN_DESCRIPTION) {
-          const info = extractFromHtml(page.html);
-          if (info.description.length > String(rec.description || "").length) {
-            rec.description = info.description;
-            enriched++;
-          }
-          rec.location = rec.location || info.location;
-          rec.posted = rec.posted || info.posted;
-          rec.company = rec.company || info.company;
-          rec.title = rec.title || info.title;
+        const info = extractFromHtml(page.html);
+        if (info.expired || looksExpiredText(page.html.slice(0, 20000))) {
+          expired++;
+          await recordVisit(userId, rec.job_url, { kind: "job", status: "not_found", note: "expired" });
+          continue;
         }
+        if (String(rec.description || "").length < MIN_DESCRIPTION && info.description.length > String(rec.description || "").length) {
+          rec.description = info.description;
+          enriched++;
+        }
+        rec.location = rec.location || info.location;
+        rec.posted = rec.posted || info.posted;
+        rec.company = rec.company || info.company;
+        rec.title = rec.title || info.title;
         if (isAggregatorUrl(rec.job_url)) {
           const official = extractOfficialApplyUrl(page.html, page.finalUrl || rec.job_url);
           if (official && isGenuineUrl(official)) {
@@ -112,12 +129,12 @@ async function enrichJobs(records, { userId, log, concurrency = 6 }) {
   }
   await Promise.all(Array.from({ length: Math.min(concurrency, todo.length) }, worker));
   alive.push(...records.slice(MAX_PAGES));
-  if (log && (dead || enriched || resolved)) {
+  if (log && (dead || enriched || resolved || expired)) {
     await log.info(
-      `Read ${todo.length} job pages: ${enriched} descriptions added, ${resolved} rewritten to company/ATS links, ${dead} dead links dropped`
+      `Read ${todo.length} job pages: ${enriched} descriptions added, ${resolved} rewritten to company/ATS links, ${expired} expired, ${dead} dead links dropped`
     );
   }
-  return { alive, dead, enriched, resolved };
+  return { alive, dead, enriched, resolved, expired };
 }
 
 module.exports = { enrichJobs, extractFromHtml, isDeadStatus };

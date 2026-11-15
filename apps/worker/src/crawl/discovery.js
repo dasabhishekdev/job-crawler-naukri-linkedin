@@ -56,6 +56,10 @@ Then answer straight away from those results. Do not refine, verify or open page
 
 Return up to ${settings.jobs_per_search} job postings that look currently open and relevant to: ${uniqueRoles(profile).slice(0, 6).join("; ")} in ${locationPhrase(profile)}.
 
+Freshness rules (strict):
+- Only jobs that appear open NOW and posted within about ${settings.max_job_age_days || 14} days. Skip closed, filled, expired, or "30+ days ago" listings.
+- Put the posting date or relative age in "posted" whenever the snippet shows it.
+
 Source rules (strict):
 - Prefer the company's OWN careers page or ATS posting (Greenhouse, Lever, Ashby, Workday, SmartRecruiters, Darwinbox, Keka, etc.).
 - Do NOT return Naukri, Indeed, LinkedIn, Apna, Glassdoor, Shine, Foundit, Hirist, Instahyre, Cutshort, TimesJobs or Internshala listing URLs.
