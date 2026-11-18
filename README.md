@@ -13,7 +13,7 @@ A multi-user AI job crawler. People sign up (email + password or Google), upload
 - **Scoring:** match %, relevancy, a short summary, ATS % and missing keywords per job.
 - **Bring your own AI:** each user saves a Cursor and/or OpenAI key (encrypted at rest) and picks the provider + model that does all the work.
 - **Google Drive (optional):** a per-user "Job Matches" sheet (newest first) and a folder of generated resume PDFs.
-- **LinkedIn / Naukri (optional):** users sign in through a private in-app login window; the platform then crawls each portal's recommended jobs and a logged-in search every 3 hours. Optional daily Naukri profile refresh. No auto-apply.
+- **LinkedIn / Naukri (optional):** users sign in through a private in-app login window; the platform then crawls each portal's recommended jobs and a logged-in search every 3 hours. Optional daily Naukri profile refresh. Opt-in **Auto-apply** for Easy Apply jobs (see below).
 - **Live activity:** the Activity page streams every background step as it happens (Server-Sent Events from `/api/runs/live`): AI calls with provider, model and duration, the search agent's narration and queries, each job found, opened and scored. Filter by AI, Jobs or Problems; the Jobs page banner shows the latest line.
 - **Admin:** users with emails in `ADMIN_EMAILS` can see usage, disable accounts and issue one-time password resets.
 
@@ -42,7 +42,7 @@ docker compose up -d --build
 
 Open http://localhost:3006, create an account, and follow the 4-step setup (resume → AI key → profile → start).
 
-Keep `APP_ENCRYPTION_KEY` safe and stable: if it changes, stored AI keys and Google tokens can no longer be decrypted and users must re-enter them.
+Keep `APP_ENCRYPTION_KEY` safe and stable: if it changes, stored AI keys, Google tokens, portal sessions, and the apply-vault password can no longer be decrypted and users must re-enter them.
 
 ### Without Docker
 
@@ -68,6 +68,21 @@ npm test             # unit + API integration tests (uses mongodb://localhost:27
 - **Refresh my Naukri profile daily** re-uploads the current resume at 09:15 IST.
 
 Portals can restrict accounts that look automated. Keep the limits conservative and connect personal accounts only.
+
+## Auto-apply (opt-in)
+
+Off until you turn it on. When enabled, matching **Naukri** and **LinkedIn Easy Apply** jobs are submitted with no pre-review. Web and career-page jobs are not auto-applied in this version.
+
+1. Connect LinkedIn and/or Naukri under **Settings → Job portals**.
+2. Open **Settings → Auto-apply**. Fill the apply vault — name, email, and phone are required. Other fields (city, CTC, notice period, work authorization) are used only when a form asks; they are never guessed. An optional default portal password is stored encrypted with `APP_ENCRYPTION_KEY` for later portal logins and is never shown again.
+3. Set the match threshold (default 70%) and daily attempt cap (hard max **20** Easy Apply / submit clicks per IST day).
+4. Turn on **Auto-apply to matching jobs**. Runs fire at :15 and :45 IST, or immediately via **Apply now**. Watch them on Activity.
+
+Jobs that hit a CAPTCHA, OTP, checkpoint, timeout, disconnected portal, or a required field the adapter cannot fill land in **Needs help**. Retry, skip, or mark them applied from that queue — they are not retried automatically. Other queued jobs continue.
+
+Portals may restrict accounts that look automated. Use a personal account, keep the cap at 20, and review Needs help.
+
+**Phase 2** will add generic company-portal agents (login, form mapping, create-account). Playbooks and ATS adapters come later. No extra environment variables: vault secrets use `APP_ENCRYPTION_KEY`; apply screenshots go under `DATA_DIR` (or the system temp dir).
 
 ## Google sign-in and Drive (optional)
 
