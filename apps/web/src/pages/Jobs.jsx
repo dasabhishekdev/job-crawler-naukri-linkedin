@@ -81,7 +81,7 @@ export function JobsPage() {
   const [view, setView] = useState("inbox");
   const [q, setQ] = useState("");
   const [query, setQuery] = useState("");
-  const [minMatch, setMinMatch] = useState("");
+  const [minMatch, setMinMatch] = useState("70");
   const [jobs, setJobs] = useState([]);
   const [counts, setCounts] = useState({});
   const [nextBefore, setNextBefore] = useState(null);
@@ -206,10 +206,20 @@ export function JobsPage() {
           ) : null}
         </div>
       ) : (
-        <Empty title={view === "inbox" ? "No jobs yet" : `Nothing in ${view}`}>
+        <Empty title={view === "inbox" ? (minMatch ? `No ${minMatch}%+ matches` : "No jobs yet") : `Nothing in ${view}`}>
           {view === "inbox" ? (
             <>
-              Click <strong>Search now</strong> to run your first search, or check your <Link to="/resume">profile</Link> target roles.
+              {minMatch ? (
+                <>
+                  Inbox defaults to <strong>{minMatch}%+</strong> match. Lower the filter or click <strong>Search now</strong>. Expired
+                  postings are hidden automatically when a crawl rechecks them.
+                </>
+              ) : (
+                <>
+                  Click <strong>Search now</strong> to run your first search, or check your <Link to="/resume">profile</Link> target
+                  roles.
+                </>
+              )}
             </>
           ) : null}
         </Empty>

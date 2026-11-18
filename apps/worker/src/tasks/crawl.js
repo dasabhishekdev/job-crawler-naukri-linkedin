@@ -3,6 +3,7 @@ const { syncUserSheet } = require("@jobportal/google");
 const { searchWeb, crawlCareerPages } = require("../crawl/discovery");
 const { ensurePlan, mintFreshQueries, pickQueries, recordYield, queryKey } = require("../crawl/planner");
 const { validateJobsOpen } = require("../crawl/validate");
+const { revalidateHighMatchJobs } = require("../crawl/revalidate");
 const { discoverCompanies, findCareersPage, normalizeCompanies, registrableDomain } = require("../crawl/companies");
 const { detectBoard, detectBoardFromHtml } = require("../crawl/career-boards");
 const { enrichJobs } = require("../crawl/enrich");
@@ -321,6 +322,18 @@ async function ingestJobs({ ai, raw, user, profile, resume, run, log, stage, cou
   const relevant = await JobPosting.countDocuments({ run_id: run._id, "match.score": { $gte: settings.min_match_to_sheet } });
   await count({ scored, relevant });
   await log.info(`Scored ${scored} jobs; ${relevant} new jobs match ${settings.min_match_to_sheet}%+`);
+
+  await stage("score", "Checking high-match jobs are still open");
+  const linkCheck =
+    (await step(log, "Link check", () =>
+      revalidateHighMatchJobs({
+        userId: user._id,
+        minScore: Math.max(70, Number(settings.min_match_to_sheet) || 70),
+        log,
+        checkCancel,
+      })
+    )) || { checked: 0, expired: 0, dead: 0 };
+  await count({ link_checked: linkCheck.checked, link_expired: linkCheck.expired, link_dead: linkCheck.dead });
 
   if (user.google?.refresh_token) {
     await stage("sync", "Updating your Google Sheet");

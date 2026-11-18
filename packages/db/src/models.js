@@ -177,6 +177,8 @@ const jobPostingSchema = new Schema(
     match: { type: matchSchema, default: () => ({}) },
     status: { type: String, enum: JOB_STATUSES, default: "new" },
     latest_resume_id: { type: ObjectId, ref: "GeneratedResume" },
+    link_status: { type: String, enum: ["unknown", "open", "expired", "dead"], default: "unknown" },
+    link_checked_at: Date,
   },
   { timestamps: true }
 );
@@ -185,6 +187,7 @@ jobPostingSchema.index({ user_id: 1, job_url: 1 }, { unique: true });
 jobPostingSchema.index({ user_id: 1, dedupe_key: 1 });
 jobPostingSchema.index({ user_id: 1, first_seen_at: -1 });
 jobPostingSchema.index({ user_id: 1, "match.scored_at": 1 });
+jobPostingSchema.index({ user_id: 1, "match.score": -1, link_checked_at: 1 });
 
 const runSchema = new Schema(
   {

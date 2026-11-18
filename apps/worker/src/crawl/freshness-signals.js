@@ -10,6 +10,14 @@ const EXPIRED_PATTERNS = [
   /\b(sorry[,.]?\s+)?this\s+(job|posting)\s+(is\s+)?(no\s+longer|not)\s+available\b/i,
   /\b404\b.*\b(job|position)\b/i,
   /\b(hiring\s+for\s+this\s+role\s+is\s+complete|we('ve| have)\s+filled\s+this\s+role)\b/i,
+  // Naukri / portal empty-state copy when the posting is gone
+  /\bsorry\b[\s\S]{0,80}\bno\s+jobs?\s+found\b/i,
+  /\bno\s+jobs?\s+found\b/i,
+  /\bwe\s+couldn['’]?t\s+find\s+(this\s+)?(job|opening|posting)\b/i,
+  /\b(job|opening|posting)\s+you\s+are\s+looking\s+for\s+(is\s+)?(not\s+available|no\s+longer)\b/i,
+  /\bthis\s+job\s+(is\s+)?(currently\s+)?unavailable\b/i,
+  /\bpage\s+not\s+found\b/i,
+  /\bjob\s+has\s+been\s+removed\b/i,
 ];
 
 function looksExpiredText(text) {

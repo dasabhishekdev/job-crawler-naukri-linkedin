@@ -8,6 +8,8 @@ test("looksExpiredText catches common closed-job copy", () => {
   assert.equal(looksExpiredText("This job is no longer available"), true);
   assert.equal(looksExpiredText("Sorry, this posting has been filled"), true);
   assert.equal(looksExpiredText("Applications are closed"), true);
+  assert.equal(looksExpiredText("Sorry! No jobs found"), true);
+  assert.equal(looksExpiredText("We couldn't find this job"), true);
   assert.equal(looksExpiredText("We are hiring a Supply Chain Analyst in Bengaluru"), false);
 });
 

@@ -8,6 +8,7 @@ function isApplyEligible({ job, vault }) {
   const kind = portalKindForJob(job);
   if (!kind) return false;
   if (job.status === "hidden") return false;
+  if (job.link_status === "expired" || job.link_status === "dead") return false;
   const threshold = Number(vault?.match_threshold ?? 70);
   const score = Number(job?.match?.score);
   if (!Number.isFinite(score) || score < threshold) return false;

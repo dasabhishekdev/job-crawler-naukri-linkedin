@@ -137,4 +137,4 @@ async function enrichJobs(records, { userId, log, concurrency = 6 }) {
   return { alive, dead, enriched, resolved, expired };
 }
 
-module.exports = { enrichJobs, extractFromHtml, isDeadStatus };
+module.exports = { enrichJobs, extractFromHtml, isDeadStatus, fetchPage };

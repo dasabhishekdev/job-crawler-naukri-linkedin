@@ -54,6 +54,10 @@ function jobsRouter() {
     const query = listSchema.parse(req.query);
     const filter = { user_id: req.user._id, ...VIEW_FILTERS[query.view] };
     if (query.min_match) filter["match.score"] = { $gte: query.min_match };
+    // Never surface known-dead/expired links in inbox/saved even if status lagged
+    if (query.view === "inbox" || query.view === "saved") {
+      filter.link_status = { $nin: ["expired", "dead"] };
+    }
     if (query.relevancy) filter["match.relevancy"] = query.relevancy;
     if (query.q) {
       const rx = new RegExp(escapeRegex(query.q), "i");
