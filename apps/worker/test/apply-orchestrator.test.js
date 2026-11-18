@@ -310,6 +310,7 @@ describe("processQueuedApplications", () => {
         },
       },
       countAttemptsToday: async () => counted,
+      recoverInFlight: async () => {},
       nextQueued: async () => apps.filter((a) => a.status === "queued").sort((a, b) => a.createdAt - b.createdAt)[0] || null,
       skipQueued: async () => {
         for (const app of apps) {
@@ -320,6 +321,34 @@ describe("processQueuedApplications", () => {
     });
     assert.equal(apps[0].status, "applied");
     assert.equal(apps[1].status, "skipped_cap");
+  });
+
+  it("requeues in-flight applications left by a crashed run", async () => {
+    const apps = [makeApp({ _id: "stuck", status: "executing", createdAt: new Date(1) })];
+    const { browser } = makeBrowser();
+    await processQueuedApplications({
+      user: { _id: "u1" },
+      vault: { daily_attempt_cap: 20, auto_apply_enabled: true },
+      browser,
+      log: { info: async () => {}, warn: async () => {}, job: async () => {} },
+      findJob: async () => makeJob(),
+      updateJob: async () => {},
+      loadConnectedStates: async () => [{ portal: "naukri", storageState: {} }],
+      refreshConnection: async () => {},
+      markExpired: async () => {},
+      writeResumeTemp: async () => ({ resumePath: "", cleanup: async () => {} }),
+      saveScreenshot: async () => "",
+      adapters: { naukri_easy: async () => ({ ok: true, attempted: true }) },
+      countAttemptsToday: async () => 0,
+      recoverInFlight: async () => {
+        for (const app of apps) {
+          if (["classifying", "authenticating", "mapping_fields", "executing"].includes(app.status)) app.status = "queued";
+        }
+      },
+      nextQueued: async () => apps.find((a) => a.status === "queued") || null,
+      skipQueued: async () => ({ modifiedCount: 0 }),
+    });
+    assert.equal(apps[0].status, "applied");
   });
 });
 

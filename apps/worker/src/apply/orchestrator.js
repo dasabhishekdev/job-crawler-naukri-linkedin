@@ -82,6 +82,13 @@ async function skipQueued(userId) {
   );
 }
 
+async function recoverInFlight(userId) {
+  return Application.updateMany(
+    { user_id: userId, status: { $in: [...IN_FLIGHT] } },
+    { $set: { status: "queued" } }
+  );
+}
+
 function mergeDeps(opts = {}) {
   return {
     findJob: opts.findJob || ((userId, jobId) => JobPosting.findOne({ _id: jobId, user_id: userId })),
@@ -95,6 +102,7 @@ function mergeDeps(opts = {}) {
     countAttemptsToday: opts.countAttemptsToday || countAttemptsToday,
     nextQueued: opts.nextQueued || nextQueued,
     skipQueued: opts.skipQueued || skipQueued,
+    recoverInFlight: opts.recoverInFlight || recoverInFlight,
     timeoutMs: opts.timeoutMs ?? JOB_TIMEOUT_MS,
   };
 }
@@ -268,6 +276,7 @@ async function processQueuedApplications(opts) {
   const cap = vault?.daily_attempt_cap ?? 20;
   const stats = { applied: 0, needs_help: 0, failed: 0, skipped_cap: 0, processed: 0 };
 
+  await deps.recoverInFlight(user._id);
   let remaining = attemptsRemaining(cap, await deps.countAttemptsToday(user._id));
   while (remaining > 0) {
     await checkCancel();
