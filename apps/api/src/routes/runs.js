@@ -49,6 +49,24 @@ function runsRouter() {
     res.status(202).json({ run_id: run._id });
   });
 
+  /** Re-open inbox/saved job URLs; hide expired or dead postings. No AI key required. */
+  router.post("/check-links", async (req, res) => {
+    const body = z
+      .object({
+        min_score: z.coerce.number().int().min(0).max(100).default(70),
+        limit: z.coerce.number().int().min(1).max(100).default(50),
+      })
+      .parse(req.body || {});
+    const { run, queued } = await enqueueRun({
+      userId: req.user._id,
+      kind: "check_links",
+      triggeredBy: "manual",
+      payload: { min_score: body.min_score, limit: body.limit },
+    });
+    if (!queued) throw conflict("A link check is already running.");
+    res.status(202).json({ run_id: run._id });
+  });
+
   router.post("/:id/cancel", async (req, res) => {
     const run = await Run.findOneAndUpdate(
       { _id: req.params.id, user_id: req.user._id, status: { $in: ["queued", "running"] } },

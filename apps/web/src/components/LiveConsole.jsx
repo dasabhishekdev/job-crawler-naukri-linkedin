@@ -8,6 +8,7 @@ export const KIND_LABELS = {
   generate_resume: "Tailored resume",
   naukri_refresh: "Naukri refresh",
   auto_apply: "Auto-apply",
+  check_links: "Check expired",
 };
 
 const TAG_LABELS = { ai: "AI", search: "Search", job: "Job", step: "Step" };
@@ -28,6 +29,7 @@ const STAGE_TEXT = {
   pdf: "Creating PDF",
   upload: "Uploading",
   apply: "Applying",
+  check: "Checking links",
 };
 
 function time(value) {

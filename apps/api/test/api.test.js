@@ -280,6 +280,16 @@ test("AI key and crawl endpoints validate input and prerequisites", async () => 
   assert.equal(JSON.stringify(settings.body).includes("ciphertext"), false);
 });
 
+test("check-links enqueues without AI key and rejects a second concurrent run", async () => {
+  const { agent } = await sessionAgent("check-links@example.com");
+  const first = await agent.post("/api/runs/check-links").send({ min_score: 70, limit: 25 });
+  assert.equal(first.status, 202);
+  assert.ok(first.body.run_id);
+  const second = await agent.post("/api/runs/check-links").send({});
+  assert.equal(second.status, 409);
+  assert.match(second.body.error, /already running/i);
+});
+
 test("rejects enabling auto-apply when vault incomplete", async () => {
   const { agent } = await sessionAgent("vault-incomplete@example.com");
   const res = await agent.put("/api/apply/vault").send({ auto_apply_enabled: true });

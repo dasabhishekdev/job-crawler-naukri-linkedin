@@ -31,6 +31,10 @@ function summary(run) {
       return run.result
         ? `${run.result.applied || 0} applied · ${run.result.needs_help || 0} need help · ${run.result.failed || 0} failed`
         : run.detail || "";
+    case "check_links":
+      return run.status === "completed" || c.link_checked
+        ? `${c.link_checked || 0} checked · ${c.link_open || 0} open · ${(c.link_expired || 0) + (c.link_dead || 0)} expired/hidden`
+        : run.detail || "";
     default:
       return run.detail || "";
   }

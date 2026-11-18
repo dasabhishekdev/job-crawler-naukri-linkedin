@@ -68,6 +68,7 @@ export const api = {
   activeRuns: () => request("/runs/active"),
   getRun: (id) => request(`/runs/${id}`),
   startCrawl: () => request("/runs/crawl", { method: "POST" }),
+  checkJobLinks: (body = {}) => request("/runs/check-links", { method: "POST", body }),
   cancelRun: (id) => request(`/runs/${id}/cancel`, { method: "POST" }),
 
   getMemory: () => request("/agent/memory"),

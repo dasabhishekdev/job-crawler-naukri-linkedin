@@ -14,6 +14,7 @@ async function revalidateHighMatchJobs({
   userId,
   minScore = HIGH_MATCH,
   limit = MAX_PER_RUN,
+  force = false,
   log,
   checkCancel,
   now = new Date(),
@@ -23,17 +24,18 @@ async function revalidateHighMatchJobs({
   isDeadStatus = enrich.isDeadStatus,
 } = {}) {
   const staleBefore = new Date(now.getTime() - RECHECK_AFTER_MS);
+  const filter = {
+    user_id: userId,
+    status: { $in: ["new", "saved"] },
+    job_url: { $exists: true, $ne: "" },
+  };
+  if (minScore > 0) filter["match.score"] = { $gte: minScore };
+  if (!force) {
+    filter.$or = [{ link_checked_at: null }, { link_checked_at: { $lt: staleBefore } }, { link_status: "unknown" }];
+  }
   const jobs = findJobs
     ? await findJobs()
-    : await JobPosting.find({
-        user_id: userId,
-        status: { $in: ["new", "saved"] },
-        "match.score": { $gte: minScore },
-        job_url: { $exists: true, $ne: "" },
-        $or: [{ link_checked_at: null }, { link_checked_at: { $lt: staleBefore } }, { link_status: "unknown" }],
-      })
-        .sort({ "match.score": -1, first_seen_at: -1 })
-        .limit(limit);
+    : await JobPosting.find(filter).sort({ "match.score": -1, first_seen_at: -1 }).limit(limit);
 
   let expired = 0;
   let dead = 0;

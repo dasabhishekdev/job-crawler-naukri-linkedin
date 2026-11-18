@@ -1,6 +1,14 @@
 const { Run } = require("./models");
 
-const DAILY_LIMITS = { crawl: 24, generate_resume: 30, parse_resume: 20, portal_crawl: 10, naukri_refresh: 2, auto_apply: 48 };
+const DAILY_LIMITS = {
+  crawl: 24,
+  generate_resume: 30,
+  parse_resume: 20,
+  portal_crawl: 10,
+  naukri_refresh: 2,
+  auto_apply: 48,
+  check_links: 24,
+};
 
 function startOfDayIst(now = new Date()) {
   const day = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" }).format(now);

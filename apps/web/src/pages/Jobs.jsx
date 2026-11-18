@@ -12,20 +12,33 @@ const VIEWS = [
   { id: "hidden", label: "Hidden", count: (c) => c.hidden || 0 },
 ];
 
-const STAGE_TEXT = { search: "Searching job sites", score: "Scoring matches", sync: "Updating your sheet" };
+const STAGE_TEXT = {
+  search: "Searching job sites",
+  score: "Scoring matches",
+  sync: "Updating your sheet",
+  check: "Checking job links",
+};
 
-function CrawlBanner({ run, onCancel }) {
+function RunBanner({ run, queuedLabel, idleHint, onCancel }) {
   const { lines } = useLiveFeed({ runId: run?._id, enabled: Boolean(run?._id), limit: 5 });
   if (!run) return null;
   const latest = lines[lines.length - 1];
+  const c = run.counters || {};
+  const defaultHint =
+    run.kind === "check_links"
+      ? c.link_checked
+        ? `${c.link_checked} checked · ${c.link_open || 0} open · ${(c.link_expired || 0) + (c.link_dead || 0)} expired`
+        : idleHint || "Opening job pages and moving expired ones to Hidden…"
+      : c.found
+        ? `${c.found} postings found · ${c.new || 0} new`
+        : idleHint || "This takes a few minutes. New jobs appear here automatically.";
   return (
     <div className="banner">
       <span className="spinner" aria-hidden="true" />
       <div className="grow min0">
-        <p className="strong">{run.status === "queued" ? "Job search queued" : STAGE_TEXT[run.stage] || "Searching…"}</p>
+        <p className="strong">{run.status === "queued" ? queuedLabel : STAGE_TEXT[run.stage] || "Working…"}</p>
         <p className="muted small truncate" aria-live="polite">
-          {latest?.message ||
-            (run.counters?.found ? `${run.counters.found} postings found · ${run.counters.new || 0} new` : "This takes a few minutes. New jobs appear here automatically.")}
+          {latest?.message || defaultHint}
         </p>
         <Link className="small" to="/activity">
           Watch live
@@ -88,8 +101,10 @@ export function JobsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [activeRun, setActiveRun] = useState(null);
+  const [checkRun, setCheckRun] = useState(null);
   const [openId, setOpenId] = useState(null);
   const [starting, setStarting] = useState(false);
+  const [checking, setChecking] = useState(false);
 
   useEffect(() => {
     const t = setTimeout(() => setQuery(q.trim()), 300);
@@ -122,23 +137,39 @@ export function JobsPage() {
     async () => {
       const { runs } = await api.activeRuns();
       const crawl = runs.find((r) => r.kind === "crawl") || null;
-      if (activeRun && !crawl) load();
+      const check = runs.find((r) => r.kind === "check_links") || null;
+      if ((activeRun && !crawl) || (checkRun && !check)) load();
       setActiveRun(crawl);
+      setCheckRun(check);
     },
-    activeRun ? 5000 : 30000
+    activeRun || checkRun ? 5000 : 30000
   );
-  usePoll(() => load(), 20000, Boolean(activeRun));
+  usePoll(() => load(), 20000, Boolean(activeRun || checkRun));
 
   async function startSearch() {
     setStarting(true);
     setError("");
     try {
       const { run_id } = await api.startCrawl();
-      setActiveRun({ _id: run_id, status: "queued" });
+      setActiveRun({ _id: run_id, kind: "crawl", status: "queued" });
     } catch (err) {
       setError(err.message);
     } finally {
       setStarting(false);
+    }
+  }
+
+  async function startCheckLinks() {
+    setChecking(true);
+    setError("");
+    try {
+      const score = minMatch === "" ? 70 : Number(minMatch);
+      const { run_id } = await api.checkJobLinks({ min_score: Number.isFinite(score) ? score : 70, limit: 50 });
+      setCheckRun({ _id: run_id, kind: "check_links", status: "queued" });
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setChecking(false);
     }
   }
 
@@ -158,14 +189,31 @@ export function JobsPage() {
           <h1>Jobs</h1>
           <p className="muted small">Newest matches first, from every site we search.</p>
         </div>
-        {!activeRun ? (
-          <Button busy={starting} onClick={startSearch}>
-            Search now
-          </Button>
-        ) : null}
+        <div className="row gap">
+          {!checkRun ? (
+            <Button variant="secondary" busy={checking} onClick={startCheckLinks}>
+              Check expired
+            </Button>
+          ) : null}
+          {!activeRun ? (
+            <Button busy={starting} onClick={startSearch}>
+              Search now
+            </Button>
+          ) : null}
+        </div>
       </header>
 
-      <CrawlBanner run={activeRun} onCancel={() => api.cancelRun(activeRun._id).then(() => setActiveRun(null)).catch((e) => setError(e.message))} />
+      <RunBanner
+        run={activeRun}
+        queuedLabel="Job search queued"
+        onCancel={() => api.cancelRun(activeRun._id).then(() => setActiveRun(null)).catch((e) => setError(e.message))}
+      />
+      <RunBanner
+        run={checkRun}
+        queuedLabel="Link check queued"
+        idleHint="Opening job pages and moving expired ones to Hidden…"
+        onCancel={() => api.cancelRun(checkRun._id).then(() => setCheckRun(null)).catch((e) => setError(e.message))}
+      />
 
       <div className="tabs" role="tablist">
         {VIEWS.map((v) => (
@@ -211,8 +259,8 @@ export function JobsPage() {
             <>
               {minMatch ? (
                 <>
-                  Inbox defaults to <strong>{minMatch}%+</strong> match. Lower the filter or click <strong>Search now</strong>. Expired
-                  postings are hidden automatically when a crawl rechecks them.
+                  Inbox defaults to <strong>{minMatch}%+</strong> match. Lower the filter, click <strong>Search now</strong>, or use{" "}
+                  <strong>Check expired</strong> to hide closed postings.
                 </>
               ) : (
                 <>

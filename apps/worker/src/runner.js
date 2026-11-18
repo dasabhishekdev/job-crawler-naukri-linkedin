@@ -6,6 +6,7 @@ const { generateResumeTask } = require("./tasks/generate-resume");
 const { portalCrawlTask } = require("./tasks/portal-crawl");
 const { naukriRefreshTask } = require("./tasks/naukri-refresh");
 const { autoApplyTask } = require("./tasks/auto-apply");
+const { checkLinksTask } = require("./tasks/check-links");
 
 const HANDLERS = {
   parse_resume: parseResumeTask,
@@ -14,6 +15,7 @@ const HANDLERS = {
   portal_crawl: portalCrawlTask,
   naukri_refresh: naukriRefreshTask,
   auto_apply: autoApplyTask,
+  check_links: checkLinksTask,
 };
 
 const HEARTBEAT_MS = 30 * 1000;

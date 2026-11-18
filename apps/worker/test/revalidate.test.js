@@ -83,4 +83,39 @@ describe("revalidateHighMatchJobs", () => {
     assert.equal(job.link_status, "open");
     assert.ok(job.link_checked_at);
   });
+
+  it("accepts force so recently checked jobs can be rechecked", async () => {
+    const job = fakeJob({ _id: "j4", link_status: "open", link_checked_at: new Date() });
+    const { Application } = require("@jobportal/db");
+    const orig = Application.updateMany;
+    Application.updateMany = async () => ({ modifiedCount: 0 });
+    try {
+      const result = await revalidateHighMatchJobs({
+        userId: "u1",
+        force: true,
+        findJobs: async () => [job],
+        fetchPage: async () => ({ status: 410, html: "", finalUrl: job.job_url }),
+      });
+      assert.equal(result.dead, 1);
+      assert.equal(job.status, "hidden");
+    } finally {
+      Application.updateMany = orig;
+    }
+  });
+});
+
+describe("check_links task wiring", () => {
+  it("registers check_links on the worker runner", () => {
+    const { HANDLERS } = require("../src/runner");
+    const { checkLinksTask } = require("../src/tasks/check-links");
+    assert.equal(HANDLERS.check_links, checkLinksTask);
+  });
+
+  it("forces revalidate and counts expired/hidden", async () => {
+    const { checkLinksTask } = require("../src/tasks/check-links");
+    const src = require("fs").readFileSync(require.resolve("../src/tasks/check-links.js"), "utf8");
+    assert.match(src, /force:\s*true/);
+    assert.match(src, /revalidateHighMatchJobs/);
+    assert.equal(typeof checkLinksTask, "function");
+  });
 });

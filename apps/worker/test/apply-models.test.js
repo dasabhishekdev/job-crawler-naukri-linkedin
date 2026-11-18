@@ -6,6 +6,9 @@ describe("auto-apply models", () => {
   it("includes auto_apply run kind", () => {
     assert.ok(RUN_KINDS.includes("auto_apply"));
   });
+  it("includes check_links run kind", () => {
+    assert.ok(RUN_KINDS.includes("check_links"));
+  });
   it("exports application statuses", () => {
     for (const s of ["queued", "classifying", "authenticating", "mapping_fields", "executing", "applied", "needs_help", "failed", "skipped_cap"]) {
       assert.ok(APPLICATION_STATUSES.includes(s), s);
