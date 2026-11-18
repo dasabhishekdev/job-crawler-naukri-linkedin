@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../api";
 import { usePoll, useLiveFeed } from "../hooks";
-import { Alert, Button, Empty, ScorePill, Sheet, timeAgo } from "../components/ui";
+import { Alert, ApplyBadge, Button, Empty, ScorePill, Sheet, timeAgo } from "../components/ui";
 import { JobDetail } from "./JobDetail";
 
 const VIEWS = [
@@ -58,6 +58,7 @@ function JobCard({ job, onOpen, onStatus }) {
             {job.source_site || "Web"} · {timeAgo(job.first_seen_at)}
           </span>
           {job.match?.ats_score !== undefined && job.match?.ats_score !== null ? <ScorePill value={job.match.ats_score} label="ATS" good={75} ok={55} /> : null}
+          <ApplyBadge status={job.apply_status} />
           {job.latest_resume_id ? <span className="badge badge-green">Resume ready</span> : null}
         </div>
       </button>

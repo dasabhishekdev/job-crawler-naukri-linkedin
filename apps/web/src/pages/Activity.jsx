@@ -27,6 +27,10 @@ function summary(run) {
       return run.result ? `${run.result.target_roles} roles, ${run.result.skills} skills` : run.detail || "";
     case "naukri_refresh":
       return run.result ? (run.result.confirmed ? `Uploaded ${run.result.filename}` : "Upload sent, not confirmed") : run.detail || "";
+    case "auto_apply":
+      return run.result
+        ? `${run.result.applied || 0} applied · ${run.result.needs_help || 0} need help · ${run.result.failed || 0} failed`
+        : run.detail || "";
     default:
       return run.detail || "";
   }

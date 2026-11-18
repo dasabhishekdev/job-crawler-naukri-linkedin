@@ -1,6 +1,6 @@
 const express = require("express");
 const { z } = require("zod");
-const { JobPosting, GeneratedResume, Resume, JOB_STATUSES, enqueueRun, mongoose } = require("@jobportal/db");
+const { JobPosting, GeneratedResume, Resume, JOB_STATUSES, enqueueRun, mongoose, Application } = require("@jobportal/db");
 const { aiReady } = require("@jobportal/ai");
 const { badRequest, notFound } = require("../lib/http-error");
 
@@ -25,6 +25,13 @@ const VIEW_FILTERS = {
 
 function escapeRegex(text) {
   return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+async function withApplyStatus(userId, jobs) {
+  if (!jobs.length) return jobs;
+  const apps = await Application.find({ user_id: userId, job_id: { $in: jobs.map((j) => j._id) } }, "job_id status").lean();
+  const byJob = Object.fromEntries(apps.map((a) => [String(a.job_id), a.status]));
+  return jobs.map((job) => ({ ...job, apply_status: byJob[String(job._id)] || null }));
 }
 
 function publicGenerated(doc) {
@@ -64,7 +71,7 @@ function jobsRouter() {
     const hasMore = jobs.length > query.limit;
     const page = jobs.slice(0, query.limit);
     res.json({
-      jobs: page,
+      jobs: await withApplyStatus(req.user._id, page),
       next_before: hasMore ? page[page.length - 1].first_seen_at : null,
       counts: Object.fromEntries(JOB_STATUSES.map((s) => [s, counts.find((c) => c._id === s)?.n || 0])),
     });
@@ -74,7 +81,8 @@ function jobsRouter() {
     const job = await JobPosting.findOne({ _id: req.params.id, user_id: req.user._id }).lean();
     if (!job) throw notFound("Job not found.");
     const resumes = await GeneratedResume.find({ job_id: job._id, user_id: req.user._id }).sort("-createdAt").limit(5).lean();
-    res.json({ job, resumes: resumes.map(publicGenerated) });
+    const [jobWithApply] = await withApplyStatus(req.user._id, [job]);
+    res.json({ job: jobWithApply, resumes: resumes.map(publicGenerated) });
   });
 
   router.patch("/:id", async (req, res) => {

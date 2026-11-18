@@ -7,6 +7,7 @@ import { JobsPage } from "./pages/Jobs";
 import { ResumePage } from "./pages/Resume";
 import { ActivityPage } from "./pages/Activity";
 import { SettingsPage } from "./pages/Settings";
+import { NeedsHelpPage } from "./pages/NeedsHelp";
 import { AdminPage } from "./pages/Admin";
 import { ForcePasswordChange } from "./pages/ForcePasswordChange";
 
@@ -45,6 +46,7 @@ export default function App() {
         <Route path="/jobs" element={<JobsPage />} />
         <Route path="/resume" element={<ResumePage />} />
         <Route path="/activity" element={<ActivityPage />} />
+        <Route path="/needs-help" element={<NeedsHelpPage />} />
         <Route path="/settings" element={<SettingsPage />} />
         <Route path="/admin" element={<AdminPage />} />
       </Route>

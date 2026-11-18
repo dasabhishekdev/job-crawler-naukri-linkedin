@@ -5,6 +5,7 @@ const ICONS = {
   jobs: "M4 7h16v12a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7zm5 0V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2",
   resume: "M7 3h7l5 5v12a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1zm7 0v5h5M9 13h6M9 17h6",
   activity: "M3 12h4l3-8 4 16 3-8h4",
+  help: "M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zm.05 13a1 1 0 1 1 0-2 1 1 0 0 1 0 2zm1.7-4.2c-.55.5-1 1-1 1.7h-1.5c0-1.2.6-1.9 1.2-2.4.5-.45.8-.75.8-1.3a1.2 1.2 0 0 0-1.3-1.15 1.3 1.3 0 0 0-1.3 1.1H9.3A2.8 2.8 0 0 1 12.1 7 2.7 2.7 0 0 1 14.9 9.7c0 1-.5 1.55-1.15 2.1z",
   settings: "M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zm7.4-3a7.4 7.4 0 0 0-.1-1.2l2-1.6-2-3.4-2.4 1a7.6 7.6 0 0 0-2-1.2L14.5 3h-4l-.4 2.6a7.6 7.6 0 0 0-2 1.2l-2.4-1-2 3.4 2 1.6a7.4 7.4 0 0 0 0 2.4l-2 1.6 2 3.4 2.4-1a7.6 7.6 0 0 0 2 1.2l.4 2.6h4l.4-2.6a7.6 7.6 0 0 0 2-1.2l2.4 1 2-3.4-2-1.6c.1-.4.1-.8.1-1.2z",
   admin: "M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6l8-3z",
 };
@@ -23,6 +24,7 @@ export function Shell() {
     { to: "/jobs", label: "Jobs", icon: "jobs" },
     { to: "/resume", label: "Resume", icon: "resume" },
     { to: "/activity", label: "Activity", icon: "activity" },
+    { to: "/needs-help", label: "Needs help", icon: "help" },
     { to: "/settings", label: "Settings", icon: "settings" },
   ];
   if (user?.role === "admin") items.push({ to: "/admin", label: "Admin", icon: "admin" });

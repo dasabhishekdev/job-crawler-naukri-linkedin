@@ -7,6 +7,7 @@ export const KIND_LABELS = {
   parse_resume: "Resume",
   generate_resume: "Tailored resume",
   naukri_refresh: "Naukri refresh",
+  auto_apply: "Auto-apply",
 };
 
 const TAG_LABELS = { ai: "AI", search: "Search", job: "Job", step: "Step" };
@@ -26,6 +27,7 @@ const STAGE_TEXT = {
   write: "Writing resume",
   pdf: "Creating PDF",
   upload: "Uploading",
+  apply: "Applying",
 };
 
 function time(value) {

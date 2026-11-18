@@ -81,6 +81,24 @@ export function TagInput({ id, value = [], onChange, placeholder, max = 20 }) {
   );
 }
 
+const APPLY_STATUS = {
+  applied: { label: "Applied", tone: "badge-green" },
+  needs_help: { label: "Needs help", tone: "badge-orange" },
+  queued: { label: "Queued", tone: "badge-blue" },
+  classifying: { label: "Applying…", tone: "badge-blue" },
+  authenticating: { label: "Applying…", tone: "badge-blue" },
+  mapping_fields: { label: "Applying…", tone: "badge-blue" },
+  executing: { label: "Applying…", tone: "badge-blue" },
+  failed: { label: "Apply failed", tone: "badge-red" },
+  skipped_cap: { label: "Daily cap", tone: "" },
+};
+
+export function ApplyBadge({ status }) {
+  const s = APPLY_STATUS[status];
+  if (!s) return null;
+  return <span className={`badge ${s.tone}`}>{s.label}</span>;
+}
+
 export function ScorePill({ value, label, good = 70, ok = 50 }) {
   if (value === null || value === undefined) return <span className="pill pill-muted">{label ? `${label} —` : "—"}</span>;
   const tone = value >= good ? "good" : value >= ok ? "ok" : "low";

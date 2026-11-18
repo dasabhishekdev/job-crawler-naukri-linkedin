@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import { api } from "../api";
 import { usePoll } from "../hooks";
-import { Alert, Button, ScorePill, formatDateTime, timeAgo } from "../components/ui";
+import { Alert, ApplyBadge, Button, ScorePill, formatDateTime, timeAgo } from "../components/ui";
 
 const STAGE_TEXT = {
   score: "Reading the job description…",
@@ -94,7 +95,13 @@ export function JobDetail({ jobId, onStatusChange }) {
         <ScorePill value={job.match?.score} label="Match" />
         <ScorePill value={job.match?.ats_score} label="ATS" good={75} ok={55} />
         {job.match?.relevancy ? <span className={`badge rel-${job.match.relevancy.toLowerCase()}`}>{job.match.relevancy} relevancy</span> : null}
+        <ApplyBadge status={job.apply_status} />
       </div>
+      {job.apply_status === "needs_help" ? (
+        <p className="muted small">
+          Auto-apply got stuck. Review it in <Link to="/needs-help">Needs help</Link>.
+        </p>
+      ) : null}
       {job.match?.summary ? <p>{job.match.summary}</p> : <p className="muted">This job has not been scored yet.</p>}
 
       <div className="row gap wrap">

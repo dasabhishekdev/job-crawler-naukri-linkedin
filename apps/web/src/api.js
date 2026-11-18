@@ -83,6 +83,14 @@ export const api = {
   portalCrawl: () => request("/portals/crawl", { method: "POST" }),
   naukriRefresh: () => request("/portals/naukri/refresh", { method: "POST" }),
 
+  getApplyVault: () => request("/apply/vault"),
+  saveApplyVault: (body) => request("/apply/vault", { method: "PUT", body }),
+  listApplications: (params) => request(`/apply/applications${qs(params)}`),
+  retryApplication: (id) => request(`/apply/applications/${id}/retry`, { method: "POST" }),
+  skipApplication: (id) => request(`/apply/applications/${id}/skip`, { method: "POST" }),
+  markApplicationApplied: (id) => request(`/apply/applications/${id}/mark-applied`, { method: "POST" }),
+  startAutoApply: () => request("/apply/run", { method: "POST" }),
+
   disconnectDrive: () => request("/google/drive/disconnect", { method: "POST" }),
   syncDrive: () => request("/google/drive/sync", { method: "POST" }),
 

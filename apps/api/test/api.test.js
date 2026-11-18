@@ -423,3 +423,28 @@ test("skip and mark-applied enforce application status guards", async () => {
   assert.equal(skipped.body.application.status, "failed");
   assert.equal(skipped.body.application.help_reason, "skipped_by_user");
 });
+
+test("job list and detail include apply_status", async () => {
+  const { Application } = require("@jobportal/db");
+  const { agent, user } = await sessionAgent("apply-status@example.com");
+  const job = await JobPosting.create({
+    user_id: user._id,
+    source: "naukri",
+    job_url: "https://www.naukri.com/job/apply-status-1",
+    title: "Buyer",
+    company: "Acme",
+    match: { score: 88 },
+  });
+  const listed = await agent.get("/api/jobs");
+  assert.equal(listed.status, 200);
+  assert.equal(listed.body.jobs[0].apply_status, null);
+  await Application.create({
+    user_id: user._id,
+    job_id: job._id,
+    status: "needs_help",
+    portal_kind: "naukri_easy",
+    help_reason: "captcha",
+  });
+  assert.equal((await agent.get("/api/jobs")).body.jobs[0].apply_status, "needs_help");
+  assert.equal((await agent.get(`/api/jobs/${job._id}`)).body.job.apply_status, "needs_help");
+});
