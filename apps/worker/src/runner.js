@@ -5,6 +5,7 @@ const { crawlTask } = require("./tasks/crawl");
 const { generateResumeTask } = require("./tasks/generate-resume");
 const { portalCrawlTask } = require("./tasks/portal-crawl");
 const { naukriRefreshTask } = require("./tasks/naukri-refresh");
+const { autoApplyTask } = require("./tasks/auto-apply");
 
 const HANDLERS = {
   parse_resume: parseResumeTask,
@@ -12,6 +13,7 @@ const HANDLERS = {
   generate_resume: generateResumeTask,
   portal_crawl: portalCrawlTask,
   naukri_refresh: naukriRefreshTask,
+  auto_apply: autoApplyTask,
 };
 
 const HEARTBEAT_MS = 30 * 1000;
@@ -116,4 +118,4 @@ function startRunner({ maxConcurrent = 3, pollMs = 5000 } = {}) {
   };
 }
 
-module.exports = { startRunner, failStaleRuns, claimNext };
+module.exports = { startRunner, failStaleRuns, claimNext, HANDLERS };
