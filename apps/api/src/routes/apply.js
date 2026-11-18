@@ -5,10 +5,9 @@ const express = require("express");
 const { z } = require("zod");
 const { ApplyVault, Application, Profile, JobPosting, APPLICATION_STATUSES, enqueueRun } = require("@jobportal/db");
 const { encryptSecret } = require("@jobportal/ai");
-const { isVaultReady, vaultMissingFields } = require("@jobportal/core");
+const { isVaultReady, vaultMissingFields, backfillEligibleApplications } = require("@jobportal/core");
 const { badRequest, notFound, conflict } = require("../lib/http-error");
 const { publicVault, publicApplication } = require("../lib/serialize");
-const { backfillEligibleApplications } = require("../../../worker/src/apply/enqueue");
 
 const text = (max) => z.string().trim().max(max);
 const RETRYABLE = new Set(["needs_help", "failed", "skipped_cap"]);

@@ -4,6 +4,7 @@ const { suggestionChanges, applySuggestion, SUGGESTION_FIELDS } = require("./pro
 const { vaultMissingFields, isVaultReady, REQUIRED_VAULT_FIELDS } = require("./apply-vault");
 const { portalKindForJob, isApplyEligible } = require("./apply-eligibility");
 const { attemptsRemaining } = require("./apply-cap");
+const { jobsToEnqueue, enqueueEligibleApplications, backfillEligibleApplications } = require("./apply-enqueue");
 
 module.exports = {
   suggestionChanges,
@@ -22,4 +23,7 @@ module.exports = {
   portalKindForJob,
   isApplyEligible,
   attemptsRemaining,
+  jobsToEnqueue,
+  enqueueEligibleApplications,
+  backfillEligibleApplications,
 };
