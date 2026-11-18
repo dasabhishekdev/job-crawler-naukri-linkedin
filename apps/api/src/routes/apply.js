@@ -8,6 +8,9 @@ const { publicVault, publicApplication } = require("../lib/serialize");
 
 const text = (max) => z.string().trim().max(max);
 const RETRYABLE = new Set(["needs_help", "failed", "skipped_cap"]);
+const IN_FLIGHT = new Set(["classifying", "authenticating", "mapping_fields", "executing"]);
+const SKIPPABLE = new Set(["needs_help", "failed", "queued", "skipped_cap"]);
+const MARK_APPLICABLE = new Set([...SKIPPABLE, "applied"]);
 
 const vaultSchema = z
   .object({
@@ -107,6 +110,7 @@ function applyRouter() {
 
   router.post("/applications/:id/skip", async (req, res) => {
     const row = await loadApplication(req);
+    if (!SKIPPABLE.has(row.status)) throw badRequest("This application cannot be skipped.");
     row.status = "failed";
     row.help_reason = "skipped_by_user";
     await row.save();
@@ -115,6 +119,8 @@ function applyRouter() {
 
   router.post("/applications/:id/mark-applied", async (req, res) => {
     const row = await loadApplication(req);
+    if (IN_FLIGHT.has(row.status)) throw badRequest("This application is still in progress.");
+    if (!MARK_APPLICABLE.has(row.status)) throw badRequest("This application cannot be marked applied.");
     row.status = "applied";
     row.applied_at = row.applied_at || new Date();
     await row.save();

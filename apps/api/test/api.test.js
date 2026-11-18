@@ -384,3 +384,42 @@ test("first vault GET seeds contact fields from the profile", async () => {
   assert.equal(get.body.auto_apply_enabled, false);
   assert.equal(get.body.password_set, false);
 });
+
+test("skip and mark-applied enforce application status guards", async () => {
+  const { Application } = require("@jobportal/db");
+  const { agent, user } = await sessionAgent("apply-guards@example.com");
+
+  async function createApplication(status) {
+    const job = await JobPosting.create({
+      user_id: user._id,
+      source: "naukri",
+      job_url: `https://www.naukri.com/job/guard-${status}-${Math.random()}`,
+      title: "Guard Test",
+      company: "Acme",
+    });
+    return Application.create({
+      user_id: user._id,
+      job_id: job._id,
+      status,
+      portal_kind: "naukri_easy",
+    });
+  }
+
+  for (const status of ["classifying", "authenticating", "mapping_fields", "executing"]) {
+    const appDoc = await createApplication(status);
+    assert.equal((await agent.post(`/api/apply/applications/${appDoc._id}/skip`)).status, 400);
+    assert.equal((await agent.post(`/api/apply/applications/${appDoc._id}/mark-applied`)).status, 400);
+  }
+
+  const applied = await createApplication("applied");
+  assert.equal((await agent.post(`/api/apply/applications/${applied._id}/skip`)).status, 400);
+  const markAgain = await agent.post(`/api/apply/applications/${applied._id}/mark-applied`);
+  assert.equal(markAgain.status, 200);
+  assert.equal(markAgain.body.application.status, "applied");
+
+  const queued = await createApplication("queued");
+  const skipped = await agent.post(`/api/apply/applications/${queued._id}/skip`);
+  assert.equal(skipped.status, 200);
+  assert.equal(skipped.body.application.status, "failed");
+  assert.equal(skipped.body.application.help_reason, "skipped_by_user");
+});
