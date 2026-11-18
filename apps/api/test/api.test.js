@@ -6,8 +6,9 @@ process.env.APP_ENCRYPTION_KEY = Buffer.alloc(32, 3).toString("base64");
 process.env.ADMIN_EMAILS = "admin@example.com";
 process.env.PUBLIC_URL = "http://localhost:3006";
 
+const jwt = require("jsonwebtoken");
 const request = require("supertest");
-const { connectDb, mongoose, JobPosting, User } = require("@jobportal/db");
+const { connectDb, mongoose, JobPosting, User, Profile } = require("@jobportal/db");
 const { loadConfig } = require("../src/config");
 const { createApp } = require("../src/app");
 
@@ -30,6 +31,16 @@ async function signup(email, password = "correct-horse-battery") {
   const agent = request.agent(app);
   const res = await agent.post("/api/auth/signup").send({ name: email.split("@")[0], email, password });
   return { agent, res };
+}
+
+/** Session without /api/auth/signup so apply tests stay under the auth rate limit. */
+async function sessionAgent(email) {
+  const user = await User.create({ email, name: email.split("@")[0] });
+  await Profile.create({ user_id: user._id, full_name: user.name, email });
+  const token = jwt.sign({ sub: String(user._id), sv: 0 }, process.env.SESSION_SECRET, { algorithm: "HS256", expiresIn: "30d" });
+  const agent = request.agent(app);
+  agent.set("Cookie", `jc_session=${token}`);
+  return { agent, user };
 }
 
 test("signup sets a secure session cookie and returns onboarding state", async () => {
@@ -267,4 +278,109 @@ test("AI key and crawl endpoints validate input and prerequisites", async () => 
   const settings = await agent.get("/api/settings");
   assert.equal(settings.body.ai.keys.cursor.configured, false);
   assert.equal(JSON.stringify(settings.body).includes("ciphertext"), false);
+});
+
+test("rejects enabling auto-apply when vault incomplete", async () => {
+  const { agent } = await sessionAgent("vault-incomplete@example.com");
+  const res = await agent.put("/api/apply/vault").send({ auto_apply_enabled: true });
+  assert.equal(res.status, 400);
+  assert.equal((await request(app).get("/api/apply/vault")).status, 401);
+});
+
+test("saves vault and lists needs_help applications", async () => {
+  const { Application, ApplyVault } = require("@jobportal/db");
+  const { agent, user } = await sessionAgent("anika-apply@example.com");
+  const saved = await agent.put("/api/apply/vault").send({
+    full_name: "Anika B",
+    email: "anika@example.com",
+    phone: "9999999999",
+    auto_apply_enabled: true,
+    match_threshold: 70,
+  });
+  assert.equal(saved.status, 200);
+  const get = await agent.get("/api/apply/vault");
+  assert.equal(get.status, 200);
+  assert.equal(get.body.auto_apply_enabled, true);
+  assert.equal(get.body.password_set, false);
+  assert.equal(get.body.full_name, "Anika B");
+
+  const withPass = await agent.put("/api/apply/vault").send({ default_password: "portal-secret-pass" });
+  assert.equal(withPass.status, 200);
+  assert.equal(withPass.body.password_set, true);
+  assert.equal(withPass.body.default_password, undefined);
+  assert.equal(withPass.body.default_password_enc, undefined);
+  assert.equal(JSON.stringify(withPass.body).includes("portal-secret-pass"), false);
+  assert.equal(JSON.stringify(withPass.body).includes("default_password_enc"), false);
+
+  const stored = await ApplyVault.findOne({ user_id: user._id }).select("+default_password_enc");
+  assert.ok(stored.default_password_enc);
+  assert.equal(stored.default_password_enc.includes("portal-secret-pass"), false);
+
+  const job = await JobPosting.create({
+    user_id: user._id,
+    source: "naukri",
+    job_url: "https://www.naukri.com/job/apply-1",
+    title: "Buyer",
+    company: "Acme",
+    match: { score: 85 },
+  });
+  const appDoc = await Application.create({
+    user_id: user._id,
+    job_id: job._id,
+    status: "needs_help",
+    portal_kind: "naukri_easy",
+    last_error: "captcha",
+    help_reason: "captcha",
+  });
+
+  const list = await agent.get("/api/apply/applications?status=needs_help");
+  assert.equal(list.status, 200);
+  assert.equal(list.body.applications.length, 1);
+  assert.equal(list.body.applications[0].status, "needs_help");
+  assert.equal(list.body.applications[0].id, String(appDoc._id));
+
+  const retry = await agent.post(`/api/apply/applications/${appDoc._id}/retry`);
+  assert.equal(retry.status, 200);
+  assert.equal(retry.body.application.status, "queued");
+  assert.equal(retry.body.application.last_error, "");
+
+  const skip = await agent.post(`/api/apply/applications/${appDoc._id}/skip`);
+  assert.equal(skip.status, 200);
+  assert.equal(skip.body.application.status, "failed");
+  assert.equal(skip.body.application.help_reason, "skipped_by_user");
+
+  const marked = await agent.post(`/api/apply/applications/${appDoc._id}/mark-applied`);
+  assert.equal(marked.status, 200);
+  assert.equal(marked.body.application.status, "applied");
+  assert.equal((await JobPosting.findById(job._id)).status, "applied");
+
+  assert.equal((await agent.post(`/api/apply/applications/${appDoc._id}/retry`)).status, 400);
+
+  const run = await agent.post("/api/apply/run");
+  assert.equal(run.status, 202);
+  assert.ok(run.body.run_id);
+  assert.equal((await agent.post("/api/apply/run")).status, 409);
+
+  const other = await sessionAgent("apply-intruder@example.com");
+  assert.equal((await other.agent.post(`/api/apply/applications/${appDoc._id}/retry`)).status, 404);
+  const theirs = await other.agent.get("/api/apply/applications?status=needs_help");
+  assert.equal(theirs.body.applications.length, 0);
+});
+
+test("first vault GET seeds contact fields from the profile", async () => {
+  const { agent } = await sessionAgent("seed-vault@example.com");
+  await agent.put("/api/profile").send({
+    full_name: "Seeded Name",
+    phone: "8888888888",
+    current_location: "Bengaluru",
+    experience_years: 5,
+  });
+  const get = await agent.get("/api/apply/vault");
+  assert.equal(get.status, 200);
+  assert.equal(get.body.full_name, "Seeded Name");
+  assert.equal(get.body.phone, "8888888888");
+  assert.equal(get.body.current_location, "Bengaluru");
+  assert.equal(get.body.experience_years, 5);
+  assert.equal(get.body.auto_apply_enabled, false);
+  assert.equal(get.body.password_set, false);
 });

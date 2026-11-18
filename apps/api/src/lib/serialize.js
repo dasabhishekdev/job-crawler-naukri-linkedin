@@ -1,6 +1,7 @@
 const { AI_PROVIDERS } = require("@jobportal/db");
 const { aiReady } = require("@jobportal/ai");
 const { googleConfigured } = require("@jobportal/google");
+const { isVaultReady, vaultMissingFields } = require("@jobportal/core");
 
 function publicUser(user) {
   return {
@@ -73,4 +74,57 @@ function publicResume(resume) {
   };
 }
 
-module.exports = { publicUser, publicAi, publicGoogle, publicCrawler, publicResume };
+function publicVault(vault) {
+  const v = vault?.toObject ? vault.toObject() : vault || {};
+  return {
+    full_name: v.full_name || "",
+    email: v.email || "",
+    phone: v.phone || "",
+    current_location: v.current_location || "",
+    linkedin_url: v.linkedin_url || "",
+    naukri_url: v.naukri_url || "",
+    experience_years: v.experience_years || 0,
+    notice_period: v.notice_period || "",
+    current_ctc: v.current_ctc || "",
+    expected_ctc: v.expected_ctc || "",
+    work_authorization: v.work_authorization || "",
+    education_summary: v.education_summary || "",
+    password_set: Boolean(v.password_set),
+    match_threshold: v.match_threshold ?? 70,
+    auto_apply_enabled: Boolean(v.auto_apply_enabled),
+    daily_attempt_cap: v.daily_attempt_cap ?? 20,
+    ready: isVaultReady(v),
+    missing_fields: vaultMissingFields(v),
+  };
+}
+
+function publicApplication(doc) {
+  const jobDoc = doc.job_id && typeof doc.job_id === "object" && doc.job_id.title !== undefined ? doc.job_id : null;
+  return {
+    id: String(doc._id),
+    job_id: String(jobDoc?._id || doc.job_id),
+    status: doc.status,
+    portal_kind: doc.portal_kind,
+    attempts: doc.attempts || 0,
+    last_error: doc.last_error || "",
+    help_reason: doc.help_reason || "",
+    screenshot_refs: doc.screenshot_refs || [],
+    applied_at: doc.applied_at || null,
+    created_at: doc.createdAt,
+    updated_at: doc.updatedAt,
+    ...(jobDoc
+      ? {
+          job: {
+            id: String(jobDoc._id),
+            title: jobDoc.title,
+            company: jobDoc.company,
+            job_url: jobDoc.job_url,
+            source: jobDoc.source,
+            status: jobDoc.status,
+          },
+        }
+      : {}),
+  };
+}
+
+module.exports = { publicUser, publicAi, publicGoogle, publicCrawler, publicResume, publicVault, publicApplication };
