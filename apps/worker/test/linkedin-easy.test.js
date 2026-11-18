@@ -148,7 +148,7 @@ describe("planLinkedInStep", () => {
     );
   });
 
-  it("needs help on captcha or checkpoint after Easy Apply", () => {
+  it("needs help on captcha or on-page checkpoint after Easy Apply", () => {
     assert.deepEqual(
       planLinkedInStep({
         bodyText: "Please complete the captcha",
@@ -159,20 +159,31 @@ describe("planLinkedInStep", () => {
     );
     assert.deepEqual(
       planLinkedInStep({
-        bodyText: "Job details",
-        url: "https://www.linkedin.com/checkpoint/challenge",
+        bodyText: "Unusual activity detected",
+        url: LI,
         easyApplyClicked: true,
       }),
       { ok: false, needsHelp: true, reason: "checkpoint", attempted: true }
     );
-    assert.deepEqual(
-      planLinkedInStep({
-        bodyText: "Sign in",
-        url: "https://www.linkedin.com/login",
-        easyApplyClicked: true,
-      }),
-      { ok: false, needsHelp: true, reason: "checkpoint", attempted: true }
-    );
+  });
+
+  it("throws SessionExpiredError when the URL hits login, authwall, or checkpoint mid-flow", () => {
+    for (const url of [
+      "https://www.linkedin.com/login",
+      "https://www.linkedin.com/authwall?trk=x",
+      "https://www.linkedin.com/checkpoint/challenge",
+      "https://www.linkedin.com/uas/login",
+    ]) {
+      assert.throws(
+        () => planLinkedInStep({ bodyText: "Sign in", url, easyApplyClicked: true }),
+        (err) => {
+          assert.equal(err.name, "SessionExpiredError");
+          assert.equal(err.portal, "linkedin");
+          assert.ok(err instanceof SessionExpiredError);
+          return true;
+        }
+      );
+    }
   });
 
   it("uploads a resume when a file input is visible and resumePath is set", () => {

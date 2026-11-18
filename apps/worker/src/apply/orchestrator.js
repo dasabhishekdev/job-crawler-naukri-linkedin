@@ -185,6 +185,14 @@ async function processApplication(opts) {
       await application.save();
       return application;
     }
+    if (job.status === "hidden" || job.status === "applied") {
+      application.portal_kind = portalKindForJob(job) || application.portal_kind || "unknown";
+      application.status = "failed";
+      application.help_reason = job.status === "hidden" ? "job_hidden" : "already_applied";
+      application.last_error = job.status === "hidden" ? "Job is hidden" : "Job already applied";
+      await application.save();
+      return application;
+    }
 
     application.status = "classifying";
     application.portal_kind = portalKindForJob(job) || "unknown";

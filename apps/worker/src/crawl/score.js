@@ -60,38 +60,46 @@ async function mapLimit(items, limit, fn) {
   await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
 }
 
+async function enqueueScoredJobs(jobs, log, enqueue) {
+  if (!jobs.length) return;
+  try {
+    const { enqueued } = await enqueue({ userId: jobs[0].user_id, jobs });
+    if (enqueued && log) await log.info(`Auto-apply queued ${enqueued} job(s)`);
+  } catch (err) {
+    if (log) await log.warn(`Auto-apply enqueue: ${err.message}`);
+  }
+}
+
 /** Scores jobs in provider-sized batches and saves `match` on each. Returns the number scored. */
-async function scoreJobs({ ai, jobs, resumeText, profile, log, checkCancel }) {
+async function scoreJobs({ ai, jobs, resumeText, profile, log, checkCancel, enqueue = enqueueEligibleApplications }) {
   const size = BATCH_SIZE[ai.provider] || 1;
   const batches = [];
   for (let i = 0; i < jobs.length; i += size) batches.push(jobs.slice(i, i + size));
 
   let scored = 0;
-  await mapLimit(batches, CONCURRENCY[ai.provider] || 2, async (batch) => {
-    await checkCancel();
-    try {
-      const reply = await ai.json(scorePrompt({ jobs: batch, resumeText, profile }), { maxTokens: 700 * batch.length, label: `Scoring jobs: ${batch.length}` });
-      const results = Array.isArray(reply.results) ? reply.results : [reply];
-      for (const job of batch) {
-        const result = results.find((r) => String(r.id) === String(job._id)) || (batch.length === 1 ? results[0] : null);
-        if (!result) continue;
-        job.match = toMatch(result, resumeText);
-        await job.save();
-        scored++;
-        await log.job(`${job.match.score}% match · ATS ${job.match.ats_score ?? "–"}% · ${job.title} at ${job.company}`);
+  const scoredJobs = [];
+  try {
+    await mapLimit(batches, CONCURRENCY[ai.provider] || 2, async (batch) => {
+      await checkCancel();
+      try {
+        const reply = await ai.json(scorePrompt({ jobs: batch, resumeText, profile }), { maxTokens: 700 * batch.length, label: `Scoring jobs: ${batch.length}` });
+        const results = Array.isArray(reply.results) ? reply.results : [reply];
+        for (const job of batch) {
+          const result = results.find((r) => String(r.id) === String(job._id)) || (batch.length === 1 ? results[0] : null);
+          if (!result) continue;
+          job.match = toMatch(result, resumeText);
+          await job.save();
+          scoredJobs.push(job);
+          scored++;
+          await log.job(`${job.match.score}% match · ATS ${job.match.ats_score ?? "–"}% · ${job.title} at ${job.company}`);
+        }
+      } catch (err) {
+        if (["AiKeyError", "BudgetExceededError", "RunCancelled"].includes(err.name)) throw err;
+        await log.warn(`Scoring failed for ${batch.map((j) => j.title).join(", ")}: ${err.message}`);
       }
-    } catch (err) {
-      if (["AiKeyError", "BudgetExceededError", "RunCancelled"].includes(err.name)) throw err;
-      await log.warn(`Scoring failed for ${batch.map((j) => j.title).join(", ")}: ${err.message}`);
-    }
-  });
-  if (jobs.length) {
-    try {
-      const { enqueued } = await enqueueEligibleApplications({ userId: jobs[0].user_id, jobs });
-      if (enqueued && log) await log.info(`Auto-apply queued ${enqueued} job(s)`);
-    } catch (err) {
-      if (log) await log.warn(`Auto-apply enqueue: ${err.message}`);
-    }
+    });
+  } finally {
+    await enqueueScoredJobs(scoredJobs, log, enqueue);
   }
   return scored;
 }

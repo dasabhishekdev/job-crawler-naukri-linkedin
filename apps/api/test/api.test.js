@@ -338,6 +338,8 @@ test("saves vault and lists needs_help applications", async () => {
   assert.equal(list.body.applications.length, 1);
   assert.equal(list.body.applications[0].status, "needs_help");
   assert.equal(list.body.applications[0].id, String(appDoc._id));
+  assert.equal(list.body.applications[0].has_screenshot, false);
+  assert.equal("screenshot_refs" in list.body.applications[0], false);
 
   const retry = await agent.post(`/api/apply/applications/${appDoc._id}/retry`);
   assert.equal(retry.status, 200);
@@ -447,4 +449,143 @@ test("job list and detail include apply_status", async () => {
   });
   assert.equal((await agent.get("/api/jobs")).body.jobs[0].apply_status, "needs_help");
   assert.equal((await agent.get(`/api/jobs/${job._id}`)).body.job.apply_status, "needs_help");
+});
+
+test("enables auto-apply and backfills eligible existing jobs", async () => {
+  const { Application } = require("@jobportal/db");
+  const { agent, user } = await sessionAgent("apply-backfill@example.com");
+
+  const eligibleNaukri = await JobPosting.create({
+    user_id: user._id,
+    source: "naukri",
+    job_url: "https://www.naukri.com/job/backfill-naukri",
+    title: "Buyer",
+    company: "Acme",
+    match: { score: 88 },
+  });
+  const eligibleLinkedin = await JobPosting.create({
+    user_id: user._id,
+    source: "linkedin",
+    job_url: "https://www.linkedin.com/jobs/view/backfill",
+    title: "PM",
+    company: "Beta",
+    match: { score: 70 },
+  });
+  await JobPosting.create({
+    user_id: user._id,
+    source: "naukri",
+    job_url: "https://www.naukri.com/job/backfill-hidden",
+    title: "Hidden",
+    company: "Acme",
+    status: "hidden",
+    match: { score: 95 },
+  });
+  await JobPosting.create({
+    user_id: user._id,
+    source: "web",
+    job_url: "https://careers.acme.com/job/backfill-web",
+    title: "Web role",
+    company: "Acme",
+    match: { score: 95 },
+  });
+  await JobPosting.create({
+    user_id: user._id,
+    source: "naukri",
+    job_url: "https://www.naukri.com/job/backfill-low",
+    title: "Low match",
+    company: "Acme",
+    match: { score: 40 },
+  });
+  const alreadyQueued = await JobPosting.create({
+    user_id: user._id,
+    source: "naukri",
+    job_url: "https://www.naukri.com/job/backfill-existing",
+    title: "Existing",
+    company: "Acme",
+    match: { score: 90 },
+  });
+  await Application.create({
+    user_id: user._id,
+    job_id: alreadyQueued._id,
+    status: "needs_help",
+    portal_kind: "naukri_easy",
+    help_reason: "captcha",
+  });
+
+  const saved = await agent.put("/api/apply/vault").send({
+    full_name: "Backfill User",
+    email: "backfill@example.com",
+    phone: "9999999999",
+    auto_apply_enabled: true,
+    match_threshold: 70,
+  });
+  assert.equal(saved.status, 200);
+
+  const queued = await Application.find({ user_id: user._id, status: "queued" }).lean();
+  const jobIds = queued.map((row) => String(row.job_id)).sort();
+  assert.deepEqual(jobIds, [String(eligibleLinkedin._id), String(eligibleNaukri._id)].sort());
+  assert.equal(await Application.countDocuments({ user_id: user._id, job_id: alreadyQueued._id, status: "needs_help" }), 1);
+
+  const again = await agent.put("/api/apply/vault").send({ auto_apply_enabled: true, match_threshold: 70 });
+  assert.equal(again.status, 200);
+  assert.equal(await Application.countDocuments({ user_id: user._id, status: "queued" }), 2);
+});
+
+test("serves apply screenshots without exposing filesystem paths", async () => {
+  const fs = require("fs/promises");
+  const os = require("os");
+  const path = require("path");
+  const { Application } = require("@jobportal/db");
+  const { agent, user } = await sessionAgent("apply-screenshot@example.com");
+  const job = await JobPosting.create({
+    user_id: user._id,
+    source: "naukri",
+    job_url: "https://www.naukri.com/job/screenshot-1",
+    title: "Buyer",
+    company: "Acme",
+  });
+  const appDoc = await Application.create({
+    user_id: user._id,
+    job_id: job._id,
+    status: "needs_help",
+    portal_kind: "naukri_easy",
+    help_reason: "captcha",
+  });
+  const dir = path.join(os.tmpdir(), "apply-screenshots");
+  await fs.mkdir(dir, { recursive: true });
+  const filePath = path.join(dir, `${appDoc._id}.png`);
+  const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==", "base64");
+  await fs.writeFile(filePath, png);
+  appDoc.screenshot_refs = [filePath];
+  await appDoc.save();
+
+  const list = await agent.get("/api/apply/applications?status=needs_help");
+  assert.equal(list.status, 200);
+  assert.equal(list.body.applications[0].has_screenshot, true);
+  assert.equal("screenshot_refs" in list.body.applications[0], false);
+  assert.equal(JSON.stringify(list.body).includes(filePath), false);
+
+  const shot = await agent.get(`/api/apply/applications/${appDoc._id}/screenshot`);
+  assert.equal(shot.status, 200);
+  assert.match(shot.headers["content-type"], /image\/png/);
+  assert.equal(Buffer.from(shot.body).length > 0, true);
+
+  const other = await sessionAgent("apply-screenshot-intruder@example.com");
+  assert.equal((await other.agent.get(`/api/apply/applications/${appDoc._id}/screenshot`)).status, 404);
+
+  const bare = await Application.create({
+    user_id: user._id,
+    job_id: (
+      await JobPosting.create({
+        user_id: user._id,
+        source: "naukri",
+        job_url: "https://www.naukri.com/job/screenshot-2",
+        title: "No shot",
+        company: "Acme",
+      })
+    )._id,
+    status: "failed",
+    portal_kind: "naukri_easy",
+  });
+  assert.equal((await agent.get(`/api/apply/applications/${bare._id}/screenshot`)).status, 404);
 });

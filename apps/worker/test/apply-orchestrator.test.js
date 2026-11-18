@@ -140,6 +140,26 @@ describe("processApplication", () => {
     assert.equal(application.help_reason, "");
   });
 
+  it("fails hidden and already-applied jobs without calling Easy Apply", async () => {
+    for (const [status, reason] of [
+      ["hidden", "job_hidden"],
+      ["applied", "already_applied"],
+    ]) {
+      const application = makeApp();
+      const { deps, calls } = baseDeps({ job: makeJob({ status }) });
+      await processApplication({
+        application,
+        user: { _id: "u1" },
+        vault: {},
+        ...deps,
+      });
+      assert.equal(application.status, "failed");
+      assert.equal(application.help_reason, reason);
+      assert.equal(application.attempt_counted, false);
+      assert.equal(calls.adapter, 0);
+    }
+  });
+
   it("fails when the job posting is missing", async () => {
     const application = makeApp();
     const { deps, calls } = baseDeps({ extra: { findJob: async () => null } });
@@ -537,5 +557,9 @@ describe("attemptsTodayFilter", () => {
 describe("wiring", () => {
   it("registers auto_apply on the worker runner", () => {
     assert.equal(HANDLERS.auto_apply, autoApplyTask);
+  });
+  it("backfills eligible jobs once at the start of autoApplyTask", () => {
+    const src = require("fs").readFileSync(require.resolve("../src/tasks/auto-apply.js"), "utf8");
+    assert.match(src, /await backfillEligibleApplications\(\{ userId: user\._id, vault, log \}\)/);
   });
 });

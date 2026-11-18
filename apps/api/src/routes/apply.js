@@ -1,3 +1,6 @@
+const fs = require("fs/promises");
+const os = require("os");
+const path = require("path");
 const express = require("express");
 const { z } = require("zod");
 const { ApplyVault, Application, Profile, JobPosting, APPLICATION_STATUSES, enqueueRun } = require("@jobportal/db");
@@ -5,6 +8,7 @@ const { encryptSecret } = require("@jobportal/ai");
 const { isVaultReady, vaultMissingFields } = require("@jobportal/core");
 const { badRequest, notFound, conflict } = require("../lib/http-error");
 const { publicVault, publicApplication } = require("../lib/serialize");
+const { backfillEligibleApplications } = require("../../../worker/src/apply/enqueue");
 
 const text = (max) => z.string().trim().max(max);
 const RETRYABLE = new Set(["needs_help", "failed", "skipped_cap"]);
@@ -63,6 +67,20 @@ async function loadApplication(req) {
   return row;
 }
 
+function screenshotRoot() {
+  return path.resolve(process.env.DATA_DIR || os.tmpdir(), "apply-screenshots");
+}
+
+async function resolveOwnedScreenshot(refs = []) {
+  const root = await fs.realpath(screenshotRoot()).catch(() => null);
+  if (!root) return null;
+  for (let i = refs.length - 1; i >= 0; i--) {
+    const resolved = await fs.realpath(refs[i]).catch(() => null);
+    if (resolved && (resolved === root || resolved.startsWith(root + path.sep))) return resolved;
+  }
+  return null;
+}
+
 function applyRouter() {
   const router = express.Router();
 
@@ -73,6 +91,7 @@ function applyRouter() {
   router.put("/vault", async (req, res) => {
     const { default_password, ...patch } = vaultSchema.parse(req.body);
     const vault = await getOrCreateVault(req.user);
+    const enabling = patch.auto_apply_enabled === true && !vault.auto_apply_enabled;
     Object.assign(vault, patch);
     if (default_password) {
       vault.default_password_enc = encryptSecret(default_password);
@@ -83,6 +102,9 @@ function applyRouter() {
       throw badRequest(`Complete required vault fields first: ${missing}.`);
     }
     await vault.save();
+    if (enabling) {
+      await backfillEligibleApplications({ userId: req.user._id, vault: vault.toObject() }).catch(() => {});
+    }
     res.json(publicVault(vault));
   });
 
@@ -96,6 +118,14 @@ function applyRouter() {
       .limit(query.limit)
       .lean();
     res.json({ applications: rows.map(publicApplication) });
+  });
+
+  router.get("/applications/:id/screenshot", async (req, res) => {
+    const row = await loadApplication(req);
+    const filePath = await resolveOwnedScreenshot(row.screenshot_refs);
+    if (!filePath) throw notFound("Screenshot not found.");
+    res.type("png");
+    res.sendFile(filePath);
   });
 
   router.post("/applications/:id/retry", async (req, res) => {

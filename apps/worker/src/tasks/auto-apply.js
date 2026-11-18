@@ -2,6 +2,7 @@ const { ApplyVault } = require("@jobportal/db");
 const { isVaultReady } = require("@jobportal/core");
 const { getBrowser } = require("../browser");
 const { processQueuedApplications } = require("../apply/orchestrator");
+const { backfillEligibleApplications } = require("../apply/enqueue");
 
 /** Drains queued Easy Apply jobs for one user, one browser context at a time. */
 async function autoApplyTask(ctx) {
@@ -15,6 +16,7 @@ async function autoApplyTask(ctx) {
     await log.warn("Apply vault is incomplete.");
     return { processed: 0 };
   }
+  await backfillEligibleApplications({ userId: user._id, vault, log });
   await stage("apply", "Applying to queued jobs");
   await checkCancel();
   const browser = await getBrowser();

@@ -108,7 +108,7 @@ function publicApplication(doc) {
     attempts: doc.attempts || 0,
     last_error: doc.last_error || "",
     help_reason: doc.help_reason || "",
-    screenshot_refs: doc.screenshot_refs || [],
+    has_screenshot: Boolean((doc.screenshot_refs || []).length),
     applied_at: doc.applied_at || null,
     created_at: doc.createdAt,
     updated_at: doc.updatedAt,

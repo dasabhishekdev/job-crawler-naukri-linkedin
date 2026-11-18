@@ -1,4 +1,4 @@
-const { open, humanDelay, bodyText } = require("../portals/common");
+const { open, humanDelay, bodyText, SessionExpiredError } = require("../portals/common");
 const { detectApplyOutcome, helpReasonFromText } = require("./detect");
 
 const CLICKABLE =
@@ -54,11 +54,14 @@ function mapFieldFromVault(field, vault = {}) {
   return null;
 }
 
+function isLinkedInAuthUrl(url) {
+  return /linkedin\.com\/(login|authwall|checkpoint|uas\/login|signup)/i.test(String(url || ""));
+}
+
 function linkedInHelpReason(text, url) {
   const t = String(text || "");
   const href = String(url || "");
   if (/captcha|verify you.?re human/i.test(t)) return "captcha";
-  if (/linkedin\.com\/(login|authwall|checkpoint|uas\/login|signup)/i.test(href)) return "checkpoint";
   if (/checkpoint|unusual activity|security (check|challenge)/i.test(t)) return "checkpoint";
   if (detectApplyOutcome(t, href) === "needs_help") return helpReasonFromText(t);
   return null;
@@ -89,6 +92,7 @@ function planLinkedInStep({
 } = {}) {
   const buttons = normalizeButtons(buttonLabels);
   const attempted = easyApplyClicked ? { attempted: true } : {};
+  if (isLinkedInAuthUrl(url)) throw new SessionExpiredError("linkedin");
   const help = linkedInHelpReason(text, url);
 
   if (isLinkedInSuccess(text, { successModal }) || buttons.some((b) => isAppliedLabel(b.label))) {
