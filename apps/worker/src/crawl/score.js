@@ -1,4 +1,5 @@
 const { atsCoverage } = require("./ats");
+const { enqueueEligibleApplications } = require("../apply/enqueue");
 
 const RELEVANCY = ["High", "Medium", "Low"];
 const BATCH_SIZE = { cursor: 5, openai: 1 };
@@ -84,6 +85,14 @@ async function scoreJobs({ ai, jobs, resumeText, profile, log, checkCancel }) {
       await log.warn(`Scoring failed for ${batch.map((j) => j.title).join(", ")}: ${err.message}`);
     }
   });
+  if (jobs.length) {
+    try {
+      const { enqueued } = await enqueueEligibleApplications({ userId: jobs[0].user_id, jobs });
+      if (enqueued && log) await log.info(`Auto-apply queued ${enqueued} job(s)`);
+    } catch (err) {
+      if (log) await log.warn(`Auto-apply enqueue: ${err.message}`);
+    }
+  }
   return scored;
 }
 
