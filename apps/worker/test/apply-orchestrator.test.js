@@ -1,7 +1,7 @@
 const { describe, it } = require("node:test");
 const assert = require("node:assert/strict");
 const { SessionExpiredError } = require("../src/portals/common");
-const { processApplication, processQueuedApplications } = require("../src/apply/orchestrator");
+const { processApplication, processQueuedApplications, attemptsTodayFilter } = require("../src/apply/orchestrator");
 const { HANDLERS } = require("../src/runner");
 const { autoApplyTask } = require("../src/tasks/auto-apply");
 
@@ -14,6 +14,7 @@ function makeApp(over = {}) {
     portal_kind: "unknown",
     attempts: 0,
     attempt_counted: false,
+    attempted_at: undefined,
     last_error: "",
     help_reason: "",
     screenshot_refs: [],
@@ -104,6 +105,7 @@ describe("processApplication", () => {
     assert.equal(application.status, "needs_help");
     assert.equal(application.help_reason, "captcha");
     assert.equal(application.attempt_counted, true);
+    assert.ok(application.attempted_at instanceof Date);
     assert.equal(application.attempts, 1);
     assert.deepEqual(application.screenshot_refs, ["/tmp/apply-screenshots/app1.png"]);
     assert.equal(calls.adapter, 1);
@@ -132,6 +134,7 @@ describe("processApplication", () => {
     assert.equal(application.status, "applied");
     assert.ok(application.applied_at instanceof Date);
     assert.equal(application.attempt_counted, true);
+    assert.ok(application.attempted_at instanceof Date);
     assert.equal(job.status, "applied");
     assert.equal(calls.refresh, 1);
     assert.equal(application.help_reason, "");
@@ -231,8 +234,46 @@ describe("processApplication", () => {
     resolveHang({ ok: true });
     assert.equal(application.status, "needs_help");
     assert.equal(application.help_reason, "timeout");
+    assert.equal(application.attempt_counted, true);
+    assert.ok(application.attempted_at instanceof Date);
+    assert.equal(application.attempts, 1);
     assert.equal(context.closed, true);
     assert.ok(application.screenshot_refs.length);
+  });
+
+  it("counts a timeout during execute and swallows a late adapter rejection", async () => {
+    const application = makeApp();
+    let rejectHang;
+    const hang = new Promise((_, reject) => {
+      rejectHang = reject;
+    });
+    const { deps, context } = baseDeps({
+      adapters: { naukri_easy: () => hang },
+      extra: { timeoutMs: 20 },
+    });
+    const unhandled = [];
+    const onUnhandled = (err) => unhandled.push(err);
+    process.on("unhandledRejection", onUnhandled);
+    try {
+      await processApplication({
+        application,
+        user: { _id: "u1" },
+        vault: {},
+        log: { info: async () => {}, warn: async () => {}, job: async () => {} },
+        ...deps,
+      });
+      rejectHang(new Error("late adapter rejection"));
+      await new Promise((resolve) => setTimeout(resolve, 30));
+    } finally {
+      process.off("unhandledRejection", onUnhandled);
+    }
+    assert.equal(application.status, "needs_help");
+    assert.equal(application.help_reason, "timeout");
+    assert.equal(application.attempt_counted, true);
+    assert.ok(application.attempted_at instanceof Date);
+    assert.equal(application.attempts, 1);
+    assert.equal(context.closed, true);
+    assert.equal(unhandled.length, 0);
   });
 
   it("marks portal_disconnected and expires the session on SessionExpiredError", async () => {
@@ -253,8 +294,34 @@ describe("processApplication", () => {
     });
     assert.equal(application.status, "needs_help");
     assert.equal(application.help_reason, "portal_disconnected");
+    assert.equal(application.attempt_counted, true);
+    assert.ok(application.attempted_at instanceof Date);
+    assert.equal(application.attempts, 1);
     assert.equal(calls.expired, 1);
     assert.equal(calls.refresh, 0);
+  });
+
+  it("counts a generic executing error as an attempt before marking failed", async () => {
+    const application = makeApp();
+    const { deps } = baseDeps({
+      adapters: {
+        naukri_easy: async () => {
+          throw new Error("page crashed");
+        },
+      },
+    });
+    await processApplication({
+      application,
+      user: { _id: "u1" },
+      vault: {},
+      log: { info: async () => {}, warn: async () => {}, job: async () => {} },
+      ...deps,
+    });
+    assert.equal(application.status, "failed");
+    assert.match(application.last_error, /page crashed/);
+    assert.equal(application.attempt_counted, true);
+    assert.ok(application.attempted_at instanceof Date);
+    assert.equal(application.attempts, 1);
   });
 
   it("puts in-flight applications back to queued on cancel", async () => {
@@ -310,6 +377,7 @@ describe("processQueuedApplications", () => {
         },
       },
       countAttemptsToday: async () => counted,
+      restoreSkippedCap: async () => {},
       recoverInFlight: async () => {},
       nextQueued: async () => apps.filter((a) => a.status === "queued").sort((a, b) => a.createdAt - b.createdAt)[0] || null,
       skipQueued: async () => {
@@ -340,6 +408,7 @@ describe("processQueuedApplications", () => {
       saveScreenshot: async () => "",
       adapters: { naukri_easy: async () => ({ ok: true, attempted: true }) },
       countAttemptsToday: async () => 0,
+      restoreSkippedCap: async () => {},
       recoverInFlight: async () => {
         for (const app of apps) {
           if (["classifying", "authenticating", "mapping_fields", "executing"].includes(app.status)) app.status = "queued";
@@ -349,6 +418,119 @@ describe("processQueuedApplications", () => {
       skipQueued: async () => ({ modifiedCount: 0 }),
     });
     assert.equal(apps[0].status, "applied");
+  });
+
+  it("requeues skipped_cap at start and leaves needs_help untouched", async () => {
+    const apps = [
+      makeApp({
+        _id: "cap",
+        status: "skipped_cap",
+        last_error: "Daily apply cap reached",
+        createdAt: new Date(1),
+      }),
+      makeApp({
+        _id: "help",
+        job_id: "j2",
+        status: "needs_help",
+        help_reason: "captcha",
+        last_error: "captcha",
+        createdAt: new Date(2),
+      }),
+    ];
+    const { browser } = makeBrowser();
+    await processQueuedApplications({
+      user: { _id: "u1" },
+      vault: { daily_attempt_cap: 20, auto_apply_enabled: true },
+      browser,
+      log: { info: async () => {}, warn: async () => {}, job: async () => {} },
+      findJob: async () => makeJob(),
+      updateJob: async () => {},
+      loadConnectedStates: async () => [{ portal: "naukri", storageState: {} }],
+      refreshConnection: async () => {},
+      markExpired: async () => {},
+      writeResumeTemp: async () => ({ resumePath: "", cleanup: async () => {} }),
+      saveScreenshot: async () => "",
+      adapters: { naukri_easy: async () => ({ ok: true, attempted: true }) },
+      countAttemptsToday: async () => 0,
+      restoreSkippedCap: async () => {
+        for (const app of apps) {
+          if (app.status === "skipped_cap") {
+            app.status = "queued";
+            app.last_error = "";
+          }
+        }
+      },
+      recoverInFlight: async () => {},
+      nextQueued: async () => apps.find((a) => a.status === "queued") || null,
+      skipQueued: async () => ({ modifiedCount: 0 }),
+    });
+    assert.equal(apps[0].status, "applied");
+    assert.equal(apps[1].status, "needs_help");
+    assert.equal(apps[1].help_reason, "captcha");
+  });
+
+  it("stops draining a disconnected portal and continues other portals", async () => {
+    const apps = [
+      makeApp({ _id: "n1", job_id: "jn1", portal_kind: "naukri_easy", createdAt: new Date(1) }),
+      makeApp({ _id: "n2", job_id: "jn2", portal_kind: "naukri_easy", createdAt: new Date(2) }),
+      makeApp({ _id: "l1", job_id: "jl1", portal_kind: "linkedin_easy", createdAt: new Date(3) }),
+    ];
+    const jobs = {
+      jn1: makeJob({ _id: "jn1", source: "naukri", job_url: "https://www.naukri.com/job-listings-1" }),
+      jn2: makeJob({ _id: "jn2", source: "naukri", job_url: "https://www.naukri.com/job-listings-2" }),
+      jl1: makeJob({
+        _id: "jl1",
+        source: "linkedin",
+        job_url: "https://www.linkedin.com/jobs/view/1",
+        title: "PM",
+        company: "Beta",
+      }),
+    };
+    const { browser } = makeBrowser();
+    await processQueuedApplications({
+      user: { _id: "u1" },
+      vault: { daily_attempt_cap: 20, auto_apply_enabled: true },
+      browser,
+      log: { info: async () => {}, warn: async () => {}, job: async () => {} },
+      findJob: async (_userId, jobId) => jobs[String(jobId)],
+      updateJob: async () => {},
+      loadConnectedStates: async () => [{ portal: "linkedin", storageState: {} }],
+      refreshConnection: async () => {},
+      markExpired: async () => {},
+      writeResumeTemp: async () => ({ resumePath: "", cleanup: async () => {} }),
+      saveScreenshot: async () => "",
+      adapters: {
+        naukri_easy: async () => ({ ok: true, attempted: true }),
+        linkedin_easy: async () => ({ ok: true, attempted: true }),
+      },
+      countAttemptsToday: async () => 0,
+      restoreSkippedCap: async () => {},
+      recoverInFlight: async () => {},
+      nextQueued: async (_userId, exclude = []) => {
+        const blocked = new Set(exclude);
+        return (
+          apps
+            .filter((a) => a.status === "queued" && !blocked.has(a.portal_kind))
+            .sort((a, b) => a.createdAt - b.createdAt)[0] || null
+        );
+      },
+      skipQueued: async () => ({ modifiedCount: 0 }),
+    });
+    assert.equal(apps[0].status, "needs_help");
+    assert.equal(apps[0].help_reason, "portal_disconnected");
+    assert.equal(apps[1].status, "queued");
+    assert.equal(apps[2].status, "applied");
+    assert.equal(apps[2].portal_kind, "linkedin_easy");
+  });
+});
+
+describe("attemptsTodayFilter", () => {
+  it("counts attempt_counted docs by attempted_at, not updatedAt", () => {
+    const q = attemptsTodayFilter("u1");
+    assert.equal(q.user_id, "u1");
+    assert.equal(q.attempt_counted, true);
+    assert.ok(q.attempted_at.$gte instanceof Date);
+    assert.equal("updatedAt" in q, false);
   });
 });
 

@@ -31,6 +31,7 @@ function raceTimeout(promise, ms, message) {
       reject(err);
     }, ms);
   });
+  Promise.resolve(promise).catch(() => {});
   return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
 }
 
@@ -63,22 +64,35 @@ async function saveScreenshot(page, applicationId) {
   return filePath;
 }
 
-async function countAttemptsToday(userId) {
-  return Application.countDocuments({
+function attemptsTodayFilter(userId) {
+  return {
     user_id: userId,
     attempt_counted: true,
-    updatedAt: { $gte: startOfDayIst() },
-  });
+    attempted_at: { $gte: startOfDayIst() },
+  };
 }
 
-async function nextQueued(userId) {
-  return Application.findOne({ user_id: userId, status: "queued" }).sort({ createdAt: 1 });
+async function countAttemptsToday(userId) {
+  return Application.countDocuments(attemptsTodayFilter(userId));
+}
+
+async function nextQueued(userId, excludePortalKinds = []) {
+  const query = { user_id: userId, status: "queued" };
+  if (excludePortalKinds.length) query.portal_kind = { $nin: excludePortalKinds };
+  return Application.findOne(query).sort({ createdAt: 1 });
 }
 
 async function skipQueued(userId) {
   return Application.updateMany(
     { user_id: userId, status: "queued" },
     { $set: { status: "skipped_cap", last_error: "Daily apply cap reached" } }
+  );
+}
+
+async function restoreSkippedCap(userId) {
+  return Application.updateMany(
+    { user_id: userId, status: "skipped_cap" },
+    { $set: { status: "queued", last_error: "" } }
   );
 }
 
@@ -102,19 +116,20 @@ function mergeDeps(opts = {}) {
     countAttemptsToday: opts.countAttemptsToday || countAttemptsToday,
     nextQueued: opts.nextQueued || nextQueued,
     skipQueued: opts.skipQueued || skipQueued,
+    restoreSkippedCap: opts.restoreSkippedCap || restoreSkippedCap,
     recoverInFlight: opts.recoverInFlight || recoverInFlight,
     timeoutMs: opts.timeoutMs ?? JOB_TIMEOUT_MS,
   };
 }
 
-function recordAttempt(application, result) {
-  if (!result?.attempted) return;
+function recordAttempt(application) {
   application.attempt_counted = true;
+  application.attempted_at = new Date();
   application.attempts = Number(application.attempts || 0) + 1;
 }
 
 function applyAdapterResult(application, result) {
-  recordAttempt(application, result);
+  if (result?.attempted) recordAttempt(application);
   if (result?.ok) {
     application.status = "applied";
     application.applied_at = application.applied_at || new Date();
@@ -217,6 +232,7 @@ async function processApplication(opts) {
       );
     } catch (err) {
       if (err.name === "ApplyTimeoutError") {
+        if (application.status === "executing") recordAttempt(application);
         application.status = "needs_help";
         application.help_reason = "timeout";
         application.last_error = err.message;
@@ -250,6 +266,7 @@ async function processApplication(opts) {
     if (err?.name === "SessionExpiredError") {
       const portal = PORTAL_BY_KIND[application.portal_kind];
       if (portal) await expire(user._id, portal, err.message).catch(() => {});
+      if (application.status === "executing") recordAttempt(application);
       application.status = "needs_help";
       application.help_reason = "portal_disconnected";
       application.last_error = String(err.message || "").slice(0, 500);
@@ -257,6 +274,7 @@ async function processApplication(opts) {
       await application.save().catch(() => {});
       return application;
     }
+    if (application.status === "executing") recordAttempt(application);
     application.status = "failed";
     application.last_error = String(err.message || err).slice(0, 500);
     await captureShot();
@@ -276,17 +294,22 @@ async function processQueuedApplications(opts) {
   const cap = vault?.daily_attempt_cap ?? 20;
   const stats = { applied: 0, needs_help: 0, failed: 0, skipped_cap: 0, processed: 0 };
 
+  await deps.restoreSkippedCap(user._id);
   await deps.recoverInFlight(user._id);
+  const disconnectedPortals = new Set();
   let remaining = attemptsRemaining(cap, await deps.countAttemptsToday(user._id));
   while (remaining > 0) {
     await checkCancel();
-    const application = await deps.nextQueued(user._id);
+    const application = await deps.nextQueued(user._id, [...disconnectedPortals]);
     if (!application) break;
     await processApplication({ ...opts, application, ...deps });
     stats.processed += 1;
     if (application.status === "applied") stats.applied += 1;
     else if (application.status === "needs_help") stats.needs_help += 1;
     else if (application.status === "failed") stats.failed += 1;
+    if (application.help_reason === "portal_disconnected" && application.portal_kind) {
+      disconnectedPortals.add(application.portal_kind);
+    }
     remaining = attemptsRemaining(cap, await deps.countAttemptsToday(user._id));
   }
 
@@ -300,4 +323,4 @@ async function processQueuedApplications(opts) {
   return stats;
 }
 
-module.exports = { processApplication, processQueuedApplications, JOB_TIMEOUT_MS };
+module.exports = { processApplication, processQueuedApplications, JOB_TIMEOUT_MS, attemptsTodayFilter };

@@ -384,6 +384,7 @@ const applicationSchema = new Schema(
     portal_kind: { type: String, enum: APPLY_PORTAL_KINDS, default: "unknown" },
     attempts: { type: Number, default: 0 },
     attempt_counted: { type: Boolean, default: false },
+    attempted_at: Date,
     last_error: { type: String, default: "" },
     help_reason: { type: String, default: "" },
     screenshot_refs: { type: [String], default: [] },

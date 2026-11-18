@@ -1,6 +1,6 @@
 const { describe, it } = require("node:test");
 const assert = require("node:assert/strict");
-const { RUN_KINDS, APPLICATION_STATUSES, APPLY_PORTAL_KINDS } = require("@jobportal/db");
+const { RUN_KINDS, APPLICATION_STATUSES, APPLY_PORTAL_KINDS, Application } = require("@jobportal/db");
 
 describe("auto-apply models", () => {
   it("includes auto_apply run kind", () => {
@@ -14,5 +14,8 @@ describe("auto-apply models", () => {
   it("exports phase-1 portal kinds", () => {
     assert.ok(APPLY_PORTAL_KINDS.includes("naukri_easy"));
     assert.ok(APPLY_PORTAL_KINDS.includes("linkedin_easy"));
+  });
+  it("records attempt timestamps on Application", () => {
+    assert.equal(Application.schema.path("attempted_at").instance, "Date");
   });
 });
