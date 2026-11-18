@@ -6,7 +6,7 @@ const ObjectId = Schema.Types.ObjectId;
 const AI_PROVIDERS = ["cursor", "openai"];
 const PORTALS = ["linkedin", "naukri"];
 const JOB_SOURCES = ["web", "career_page", ...PORTALS];
-const RUN_KINDS = ["parse_resume", "crawl", "generate_resume", "portal_crawl", "naukri_refresh"];
+const RUN_KINDS = ["parse_resume", "crawl", "generate_resume", "portal_crawl", "naukri_refresh", "auto_apply"];
 const RUN_STATUSES = ["queued", "running", "completed", "failed", "cancelled"];
 const LOG_TAGS = ["step", "ai", "search", "job"];
 const JOB_STATUSES = ["new", "saved", "applied", "hidden"];
@@ -339,6 +339,62 @@ const aiUsageSchema = new Schema(
 aiUsageSchema.index({ user_id: 1, created_at: -1 });
 aiUsageSchema.index({ created_at: 1 }, { expireAfterSeconds: 180 * 24 * 3600 });
 
+const APPLICATION_STATUSES = [
+  "queued",
+  "classifying",
+  "authenticating",
+  "mapping_fields",
+  "executing",
+  "applied",
+  "needs_help",
+  "failed",
+  "skipped_cap",
+];
+const APPLY_PORTAL_KINDS = ["naukri_easy", "linkedin_easy", "greenhouse", "lever", "ashby", "workday", "smartrecruiters", "unknown"];
+
+const applyVaultSchema = new Schema(
+  {
+    user_id: { type: ObjectId, ref: "User", required: true, unique: true },
+    full_name: { type: String, default: "" },
+    email: { type: String, default: "", lowercase: true, trim: true },
+    phone: { type: String, default: "" },
+    current_location: { type: String, default: "" },
+    linkedin_url: { type: String, default: "" },
+    naukri_url: { type: String, default: "" },
+    experience_years: { type: Number, default: 0 },
+    notice_period: { type: String, default: "" },
+    current_ctc: { type: String, default: "" },
+    expected_ctc: { type: String, default: "" },
+    work_authorization: { type: String, default: "" },
+    education_summary: { type: String, default: "" },
+    default_password_enc: { type: String, select: false },
+    password_set: { type: Boolean, default: false },
+    match_threshold: { type: Number, default: 70, min: 0, max: 100 },
+    auto_apply_enabled: { type: Boolean, default: false },
+    daily_attempt_cap: { type: Number, default: 20, min: 1, max: 20 },
+  },
+  { timestamps: true }
+);
+
+const applicationSchema = new Schema(
+  {
+    user_id: { type: ObjectId, ref: "User", required: true },
+    job_id: { type: ObjectId, ref: "JobPosting", required: true },
+    status: { type: String, enum: APPLICATION_STATUSES, default: "queued", index: true },
+    portal_kind: { type: String, enum: APPLY_PORTAL_KINDS, default: "unknown" },
+    attempts: { type: Number, default: 0 },
+    attempt_counted: { type: Boolean, default: false },
+    last_error: { type: String, default: "" },
+    help_reason: { type: String, default: "" },
+    screenshot_refs: { type: [String], default: [] },
+    applied_at: Date,
+    run_id: { type: ObjectId, ref: "Run" },
+  },
+  { timestamps: true }
+);
+applicationSchema.index({ user_id: 1, job_id: 1 }, { unique: true });
+applicationSchema.index({ user_id: 1, status: 1, updatedAt: -1 });
+
 const User = mongoose.model("User", userSchema);
 const Profile = mongoose.model("Profile", profileSchema);
 const Resume = mongoose.model("Resume", resumeSchema);
@@ -352,6 +408,8 @@ const LoginTicket = mongoose.model("LoginTicket", loginTicketSchema, "login_tick
 const SearchQuery = mongoose.model("SearchQuery", searchQuerySchema, "search_queries");
 const VisitedPage = mongoose.model("VisitedPage", visitedPageSchema, "visited_pages");
 const AiUsage = mongoose.model("AiUsage", aiUsageSchema, "ai_usage");
+const ApplyVault = mongoose.model("ApplyVault", applyVaultSchema, "apply_vaults");
+const Application = mongoose.model("Application", applicationSchema, "applications");
 
 const ALL_MODELS = [
   User,
@@ -366,6 +424,8 @@ const ALL_MODELS = [
   SearchQuery,
   VisitedPage,
   AiUsage,
+  ApplyVault,
+  Application,
 ];
 
 async function connectDb(uri) {
@@ -384,6 +444,8 @@ module.exports = {
   RUN_KINDS,
   LOG_TAGS,
   JOB_STATUSES,
+  APPLICATION_STATUSES,
+  APPLY_PORTAL_KINDS,
   PortalConnection,
   LoginTicket,
   User,
@@ -396,4 +458,6 @@ module.exports = {
   SearchQuery,
   VisitedPage,
   AiUsage,
+  ApplyVault,
+  Application,
 };
